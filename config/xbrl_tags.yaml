@@ -1,0 +1,96 @@
+# XBRL tags per fundamental, in priority order. Companies tag the same idea
+# differently and switch tags over time (e.g. Revenues -> RevenueFromContract...
+# after ASC 606), so among the listed tags the one with the most recent period
+# wins; priority only breaks ties.
+#
+# kind: flow    -> income / cash-flow item, built into TTM (or latest annual)
+#       instant -> balance-sheet item, latest reported value
+
+concepts:
+  revenue:
+    kind: flow
+    unit: USD
+    tags:
+      - RevenueFromContractWithCustomerExcludingAssessedTax
+      - Revenues
+      - RevenueFromContractWithCustomerIncludingAssessedTax
+      - SalesRevenueNet
+      - RevenuesNetOfInterestExpense
+      - InterestAndDividendIncomeOperating
+  net_income:
+    kind: flow
+    unit: USD
+    tags: [NetIncomeLoss, NetIncomeLossAvailableToCommonStockholdersBasic, ProfitLoss]
+  operating_income:
+    kind: flow
+    unit: USD
+    tags: [OperatingIncomeLoss]
+  d_and_a:
+    kind: flow
+    unit: USD
+    tags:
+      - DepreciationDepletionAndAmortization
+      - DepreciationAndAmortization
+      - DepreciationAmortizationAndAccretionNet
+      - Depreciation
+  eps_diluted:
+    kind: flow
+    unit: USD/shares
+    tags: [EarningsPerShareDiluted, EarningsPerShareBasicAndDiluted]
+  operating_cash_flow:
+    kind: flow
+    unit: USD
+    tags:
+      - NetCashProvidedByUsedInOperatingActivities
+      - NetCashProvidedByUsedInOperatingActivitiesContinuingOperations
+  capex:
+    kind: flow
+    unit: USD
+    tags:
+      - PaymentsToAcquirePropertyPlantAndEquipment
+      - PaymentsToAcquireProductiveAssets
+      - PaymentsForCapitalImprovements
+  dividends:
+    kind: flow
+    unit: USD
+    tags: [PaymentsOfDividendsCommonStock, PaymentsOfDividends, PaymentsOfOrdinaryDividends]
+  equity:
+    kind: instant
+    unit: USD
+    tags:
+      - StockholdersEquity
+      - StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest
+  cash:
+    kind: instant
+    unit: USD
+    tags:
+      - CashAndCashEquivalentsAtCarryingValue
+      - CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents
+      - Cash
+  # Debt = total-debt tag, or noncurrent + current portions; plus short-term borrowings.
+  debt_total:
+    kind: instant
+    unit: USD
+    tags:
+      - LongTermDebt
+      - DebtAndCapitalLeaseObligations
+      - LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities
+  debt_noncurrent:
+    kind: instant
+    unit: USD
+    tags: [LongTermDebtNoncurrent, LongTermDebtAndCapitalLeaseObligations, LongTermBorrowings]
+  debt_current:
+    kind: instant
+    unit: USD
+    tags: [LongTermDebtCurrent, DebtCurrent, LongTermDebtAndCapitalLeaseObligationsCurrent]
+  short_term_borrowings:
+    kind: instant
+    unit: USD
+    tags: [ShortTermBorrowings, CommercialPaper]
+  # Shares: dei cover-page count first (summed across share classes), then us-gaap.
+  shares_outstanding:
+    kind: shares
+    unit: shares
+    tags:
+      - dei:EntityCommonStockSharesOutstanding
+      - CommonStockSharesOutstanding

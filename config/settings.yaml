@@ -1,0 +1,34 @@
+# value_screener settings. Every threshold the pipeline uses lives here.
+
+# SEC requires a descriptive User-Agent with a contact address. Put your real one in
+# config/settings.local.yaml (git-ignored) or the SEC_USER_AGENT env var:
+#   sec_user_agent: "Your Name you@example.com"
+sec_user_agent: "Your Name <email>"
+sec_max_rps: 8              # SEC allows 10/s; stay under it
+sec_workers: 8              # parallel fetches, all sharing the rate limit
+
+cache_ttl_days: 7           # SEC / symbol-file cache lifetime (weekly refresh)
+
+# Universe
+exchanges: [NASDAQ, NYSE]   # add "NYSE American" to include it
+
+# Fundamentals
+stale_months: 15            # flag fundamentals whose latest period is older than this
+
+# Prices
+price_chunk: 200            # tickers per yfinance batch download
+price_pause: 1.0            # seconds between batches
+
+# Industry fallback for tickers without an SEC SIC code (mostly foreign filers).
+yf_industry_fallback: true
+
+# Peer-relative scoring
+min_peers: 8                # fewer peers with a metric in the industry -> use the sector
+
+# Labels
+undervalued_pct: 0.20       # cheapest 20% of the industry (and passes quality)
+overvalued_pct: 0.80        # most expensive 20% of the industry
+min_metrics: 2              # fewer valuation metrics than this -> "Insufficient data"
+
+# Quality filter (value-trap guard) for Undervalued
+quality_max_de_pct: 0.80    # debt/equity must be under this industry percentile
