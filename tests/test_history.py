@@ -4,7 +4,7 @@ import pandas as pd
 
 from value_screener import fundamentals as f
 from value_screener import history as h
-from value_screener.config import CONFIG_DIR
+from value_screener.config import CONFIG_DIR, Settings
 
 TAGS = f.load_tags(CONFIG_DIR)
 
@@ -129,3 +129,11 @@ def test_notes_payable_is_last_resort_debt():
                   "NotesPayable": [bs(2024, 50), bs(2025, 60)],
                   "LongTermDebt": [bs(2025, 70)]})
     assert list(_get(h.company_history(slim, TAGS), "total_debt")) == [50, 70]
+
+
+def test_load_one_company(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    df = pd.DataFrame({"cik": [1, 1, 2], "fy_end": pd.to_datetime(["2024-12-31", "2025-12-31", "2025-12-31"]),
+                       "concept": "revenue", "val": [1.0, 2.0, 3.0]})
+    df.to_parquet(h.path(s), index=False)
+    assert h.load(s, 1)["val"].tolist() == [1.0, 2.0] and len(h.load(s)) == 3 and h.load(s, 9).empty

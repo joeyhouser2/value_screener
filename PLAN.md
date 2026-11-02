@@ -174,10 +174,14 @@ lens and two new screens; the existing `label` column is unchanged.
       Phase 10 tests them
 
 9f — CLI, export, dashboard
-- [ ] `screen --label deep-value | cyclical-trough`; export adds one sheet per new screen
-- [ ] Dashboard: new screen filters, an industry cycle-position table, and a 10-yr
-      revenue / margin / EPS chart for the selected stock
-- [ ] New columns included in `data/history/` snapshots
+- [x] `screen --label deep-value | cyclical-trough`, plus `--turning`; export adds one sheet
+      per new screen
+- [x] Dashboard: new screen filters, an industry cycle-position table, and a 10-yr
+      revenue / margin / EPS chart for the selected stock, with why it passed or nearly did
+- [x] New columns included in `data/history/` snapshots
+      Known gaps: charted EPS is net income before preferred dividends on today's share scale,
+      so it runs above reported EPS (JPM 2016: 6.70 vs 6.19), and a real share change in a split
+      year is lost (AAPL 2016: 2.18 vs 2.08). The dashboard's $300M default hides small passers
 
 9g — Tests
 - [ ] Synthetic boom-bust company: trough flagged, peak not; P/E10 and margin_position by hand

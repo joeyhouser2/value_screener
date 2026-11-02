@@ -151,3 +151,22 @@ def test_short_pe10_is_shown_but_not_peer_ranked():
     assert out.loc["T11", "pe10"] == pytest.approx(110) and out.loc["T11", "years_history"] == 3
     assert np.isnan(out.loc["T11", "pe10_pct"])
     assert out.loc["T1", "pe10_pct"] == 0 and out.loc["T10", "pe10_pct"] == 1
+
+
+def test_yearly_figures_adjust_eps_for_splits():
+    g = _hist([100.0, 100.0, 200.0], rev=[1000.0, 0.0, 2000.0], shares=[100.0, 100.0, 200.0],
+              operating_income=[100.0, 50.0, 300.0])                 # 2-for-1 in the last year
+    out = n.yearly_figures(g)
+    assert out["eps"].tolist() == pytest.approx([0.5, 0.5, 1.0])     # reported would be 1, 1, 1
+    assert out["margin"].iloc[0] == 0.1 and np.isnan(out["margin"].iloc[1]) and out["margin"].iloc[2] == 0.15
+    assert out["revenue"].tolist() == [1000.0, 0.0, 2000.0]
+
+
+def test_yearly_figures_keep_the_window_and_survive_missing_shares():
+    out = n.yearly_figures(_hist([1.0] * 12), window=10)
+    assert len(out) == 10 and out["fy_end"].is_monotonic_increasing and out["eps"].isna().all()
+
+
+def test_yearly_figures_use_pretax_for_a_bank():
+    g = _hist([10.0, 10.0], rev=[100.0, 100.0], pretax_income=[20.0, 30.0], operating_income=[99.0, 99.0])
+    assert n.yearly_figures(g, special="bank")["margin"].tolist() == [0.2, 0.3]

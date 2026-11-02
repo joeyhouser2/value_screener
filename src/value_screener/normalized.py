@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import history, industry, valuation
+from . import history, industry, peers
 from .config import Settings
 
 # Share-count ratios treated as splits (reverse splits are the reciprocals). 3-for-2
@@ -109,6 +109,21 @@ def company_metrics(g: pd.DataFrame, *, special=None, current_margin: float = np
     return out
 
 
+def yearly_figures(g: pd.DataFrame, *, special=None, window: int = 10) -> pd.DataFrame:
+    """Revenue, EBIT margin and split-adjusted EPS per fiscal year, for charting one company.
+
+    EPS is on today's share scale, for the reason given above for ``pe10``."""
+    g = g.sort_values("fy_end").tail(window)
+    col = lambda c: g[c] if c in g else pd.Series(np.nan, index=g.index)
+    rev = col("revenue")
+    shares = col("diluted_shares").to_numpy(dtype=float)
+    eps = np.full(len(g), np.nan)
+    if (shares > 0).any():
+        eps = col("net_income").to_numpy(dtype=float) / share_index(shares) / shares[shares > 0][-1]
+    return pd.DataFrame({"fy_end": g["fy_end"].to_numpy(), "revenue": rev.to_numpy(dtype=float),
+                         "margin": (_ebit(g, special) / rev.where(rev > 0)).to_numpy(dtype=float), "eps": eps})
+
+
 def company_table(history_df: pd.DataFrame, df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     """Normalized figures per CIK; ``df`` supplies ``special`` and the TTM margin."""
     ctx = df.dropna(subset=["cik"]).drop_duplicates("cik").copy()
@@ -145,7 +160,7 @@ def add_normalized(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: 
     df["norm_fcf_yield"] = df["norm_fcf"] / pos(df["market_cap"])
     for m, lower in PEER_METRICS.items():
         ranked = df[m].where(df["years_history"] >= settings.normalized_min_years) if m == "pe10" else df[m]
-        df[f"{m}_pct"], _ = valuation._peer_pct(df, ranked, lower, settings.min_peers)
+        df[f"{m}_pct"], _ = peers.peer_pct(df, ranked, lower, settings.min_peers)
 
     groups = industry.load_groups(settings.config_dir)["groups"]
     cyclical_groups = {r["group"] for r in groups if r.get("cyclical")}

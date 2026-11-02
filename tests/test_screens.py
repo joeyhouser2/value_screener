@@ -1,9 +1,11 @@
 """Phase 9e — deep value and cyclical trough screens on hand-built rows."""
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 
-from value_screener import screens as sc
+from value_screener import screens as sc, valuation
 from value_screener.config import Settings
 
 S = Settings(min_peers=8)
@@ -147,7 +149,33 @@ def test_turning_is_blank_only_when_missing_data_could_decide_it():
     assert not _one(revenue=np.nan, price_vs_200d=-0.1)["turning"]
 
 
+def test_cycle_table_sorted_lowest_first_and_skips_small_industries():
+    df = pd.DataFrame({
+        "industry_group": ["A", "A", "B", "B", "C"], "industry_cycle_position": [0.8, 0.8, 0.2, 0.2, np.nan],
+        "margin_position": [0.7, 0.9, 0.1, np.nan, 0.5], "cyclical": [True, False, True, True, True],
+        "deep_value": [True, False, False, False, True], "cyclical_trough": [False, False, True, False, True],
+        "turning": pd.array([True, pd.NA, False, pd.NA, True], dtype="boolean")})
+    out = sc.cycle_table(df)
+    assert out["industry_group"].tolist() == ["B", "A"]
+    assert out.iloc[0].to_dict() == {"industry_group": "B", "cycle_position": 0.2, "stocks": 2, "with_history": 1,
+                                     "cyclical": 2, "deep_value": 0, "cyclical_trough": 1, "turning": 0}
+    assert out.iloc[1]["turning"] == 1
+
+
 def test_missing_columns_no_crash():
     out = sc.add_screens(pd.DataFrame({"ticker": ["X"], "market_cap": [1e9], "industry_group": ["A"],
                                        "sector": ["B"]}), S).iloc[0]
     assert not out["deep_value"] and not out["cyclical_trough"] and pd.isna(out["turning"])
+
+
+def test_new_columns_reach_the_screen_and_its_snapshot(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    uni = pd.DataFrame({"ticker": ["AAA"], "name": ["A"], "exchange": "NYSE", "cik": [1.0]})
+    ind = pd.DataFrame({"ticker": ["AAA"], "industry_group": "Machinery", "sector": "Industrials", "special": None})
+    fund = pd.DataFrame({"ticker": ["AAA"], "revenue": [10.0], "net_income": [1.0], "stale": False})
+    px = pd.DataFrame({"ticker": ["AAA"], "price": [1.0], "price_date": dt.date(2026, 10, 30), "market_cap": [100.0]})
+    valuation.refresh(s, uni, ind, fund, px, verbose=False)
+    snapshot = next((tmp_path / "history").glob("screen_*.parquet"))
+    new = {"deep_value", "deep_value_reasons", "cyclical_trough", "cyclical_trough_reasons", "turning",
+           "pe10", "margin_position", "f_score", "altman_zone", "p_tbv", "ev_sales", "off_52w_high"}
+    assert new <= set(pd.read_parquet(snapshot).columns)

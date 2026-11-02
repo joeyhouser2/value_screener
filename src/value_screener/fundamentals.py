@@ -41,6 +41,7 @@ ROW_FIELDS = ("revenue", "net_income", "operating_income", "pretax_income", "int
 # Concepts the TTM row needs; the rest of xbrl_tags.yaml is for annual history only
 # (and TTM construction is the slow part, so don't build what nobody reads).
 PARTS_CONCEPTS = ("debt_parts_noncurrent", "debt_parts_current", "debt_parts_any")
+MAX_FLOW_LAG_DAYS = 120     # about one missed quarterly filing
 MAX_DEBT_LAG_DAYS = 400     # an annual-only debt tag is fine; older means it was abandoned
 MAX_PARTS_LAG_DAYS = 120
 MAX_IMPLIED_RATE = 0.25     # interest / debt above this means some of the debt isn't tagged

@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import history, normalized, valuation
+from . import fundamentals, history, normalized, peers
 from .config import Settings
 
 NO_ALTMAN = (*normalized.FINANCIALS, "reit")
@@ -155,7 +155,7 @@ def add_survival(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: Se
 
     df["tangible_book"] = equity - annual("goodwill") - annual("intangibles")
     df["p_tbv"] = mcap / pos(df["tangible_book"])
-    df["p_tbv_pct"], _ = valuation._peer_pct(df, df["p_tbv"], True, settings.min_peers)
+    df["p_tbv_pct"], _ = peers.peer_pct(df, df["p_tbv"], True, settings.min_peers)
     df["ncav"] = (same("assets_current") - liab).where(~no_altman)
     df["p_ncav"] = mcap / pos(df["ncav"])
 
@@ -176,7 +176,7 @@ def add_survival(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: Se
         index=df.index, dtype=object).where(df["altman_z"].notna(), None)
 
     financial = special.isin(normalized.FINANCIALS)
-    interest = near("interest_expense", as_of, valuation.MAX_FLOW_LAG_DAYS)
+    interest = near("interest_expense", as_of, fundamentals.MAX_FLOW_LAG_DAYS)
     df["interest_coverage"] = (num("ebit") / pos(interest)).where(~financial)
     cash_known = (as_of - date("cash_end")) <= pd.Timedelta(days=MAX_BALANCE_LAG_DAYS)
     debt_known = ~df["debt_unknown"].astype(bool) if "debt_unknown" in df else True

@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import fundamentals, normalized, screens, survival
+from . import fundamentals, normalized, peers, screens, survival
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -37,7 +37,6 @@ METRIC_SETS = {
     "reit": ["p_ffo", "pb"],
     None: ["pe", "ev_ebitda", "ps", "fcf_yield"],
 }
-MAX_FLOW_LAG_DAYS = 120     # about one missed quarterly filing
 ASSUMED_DEBT_RATE = 0.06    # turns an interest bill into the debt it roughly implies
 MATERIAL_DEBT_SHARE = 0.05  # implied debt this share of market cap is too big to ignore
 ALL_SCORED = sorted({m for ms in METRIC_SETS.values() for m in ms})
@@ -59,7 +58,7 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
         if f"{c}_end" not in df or "as_of" not in df:
             return num(c)
         lag = pd.to_datetime(df["as_of"]) - pd.to_datetime(df[f"{c}_end"])
-        return num(c).where(~(lag > pd.Timedelta(days=MAX_FLOW_LAG_DAYS)))
+        return num(c).where(~(lag > pd.Timedelta(days=fundamentals.MAX_FLOW_LAG_DAYS)))
 
     mcap, ni, rev, eq = num("market_cap"), num("net_income"), num("revenue"), num("equity")
     # An abandoned debt tag says nothing about today (ORCL: $0 from 2022). Debt is taken as
@@ -105,30 +104,6 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _peer_pct(df: pd.DataFrame, values: pd.Series, lower_is_cheaper: bool,
-              min_peers: int) -> tuple[pd.Series, pd.Series]:
-    """Percentile (0 = cheapest) within industry, else sector, else market; plus the level."""
-    v = values.where(np.isfinite(values))
-    cheap_first = v if lower_is_cheaper else -v
-    pct = pd.Series(np.nan, index=df.index)
-    level = pd.Series(None, index=df.index, dtype=object)
-    for col, name in (("industry_group", "industry"), ("sector", "sector"), (None, "market")):
-        todo = v.notna() & pct.isna()
-        if not todo.any():
-            break
-        keys = df[col].fillna("?") if col else pd.Series("all", index=df.index)
-        counts = v.notna().groupby(keys).transform("sum")
-        ok = todo & ((counts >= min_peers) | (col is None))
-        if not ok.any():
-            continue
-        ranked = cheap_first.where(v.notna()).groupby(keys).rank(pct=True, method="average")
-        # rank(pct) is in (0, 1]; shift so the cheapest peer is ~0 and the dearest 1.
-        n = counts.astype(float)
-        scaled = ((ranked * n) - 1) / (n - 1).where(n > 1, 1)
-        pct[ok], level[ok] = scaled[ok], name
-    return pct, level
-
-
 def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     """Percentiles per metric, composite, quality filter and labels."""
     df = df.copy()
@@ -137,7 +112,7 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     for m in ALL_SCORED:
         uses = special.map(lambda s: m in METRIC_SETS.get(s, METRIC_SETS[None]))
         vals = df[m].where(uses)
-        df[f"{m}_pct"], levels[m] = _peer_pct(df, vals, m in LOWER_IS_CHEAPER, settings.min_peers)
+        df[f"{m}_pct"], levels[m] = peers.peer_pct(df, vals, m in LOWER_IS_CHEAPER, settings.min_peers)
 
     pcts = df[[f"{m}_pct" for m in ALL_SCORED]]
     df["n_metrics"] = pcts.notna().sum(axis=1)
@@ -145,10 +120,10 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     order = {"industry": 0, "sector": 1, "market": 2}
     df["peer_level"] = levels.apply(
         lambda r: max((x for x in r if isinstance(x, str)), key=order.get, default=None), axis=1)
-    df["composite_pct"], _ = _peer_pct(df, df["composite"], True, settings.min_peers)
+    df["composite_pct"], _ = peers.peer_pct(df, df["composite"], True, settings.min_peers)
 
     # Quality (value-trap guard).
-    de_pct, _ = _peer_pct(df, df["debt_to_equity"], True, settings.min_peers)
+    de_pct, _ = peers.peer_pct(df, df["debt_to_equity"], True, settings.min_peers)
     financial = special.isin(["bank", "insurer", "reit"])
     checks = {
         "loss-making": ~(df["net_income"] > 0),

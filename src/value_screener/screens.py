@@ -29,9 +29,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import normalized, survival, valuation
+from . import normalized, peers, survival
 from .config import Settings
 
+SCREENS = {"Deep value": "deep_value", "Cyclical trough": "cyclical_trough"}
 NO_EV_SALES = (*normalized.FINANCIALS, "reit")
 FULL_F_TESTS = 9
 
@@ -59,7 +60,7 @@ def add_screens(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
 
     ev, revenue, mcap = num("enterprise_value"), num("revenue"), num("market_cap")
     df["ev_sales"] = (ev.where(ev > 0) / revenue.where(revenue > 0)).where(~no_ev)
-    df["ev_sales_pct"], _ = valuation._peer_pct(df, df["ev_sales"], True, settings.min_peers)
+    df["ev_sales_pct"], _ = peers.peer_pct(df, df["ev_sales"], True, settings.min_peers)
 
     coverage = df["coverage_ok"].astype("boolean") if "coverage_ok" in df else pd.Series(pd.NA, index=df.index, dtype="boolean")
     zone = df["altman_zone"] if "altman_zone" in df else pd.Series(None, index=df.index, dtype=object)
@@ -102,3 +103,18 @@ def add_screens(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     above = (vs_200d > 0).astype("boolean").mask(vs_200d.isna())
     df["turning"] = rev_up & above
     return df
+
+
+def cycle_table(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per industry with a cycle position, lowest margins against own history first."""
+    g = df[df["industry_cycle_position"].notna()].groupby("industry_group")
+    out = pd.DataFrame({
+        "cycle_position": g["industry_cycle_position"].first(),
+        "stocks": g.size(),
+        "with_history": g["margin_position"].count(),
+        "cyclical": g["cyclical"].sum().astype(int),
+        "deep_value": g["deep_value"].sum().astype(int),
+        "cyclical_trough": g["cyclical_trough"].sum().astype(int),
+        "turning": g["turning"].sum().astype(int),
+    })
+    return out.sort_values("cycle_position").reset_index()

@@ -186,5 +186,6 @@ def path(settings) -> Path:
     return settings.data_dir / "fundamentals_history.parquet"
 
 
-def load(settings) -> pd.DataFrame:
-    return pd.read_parquet(path(settings))
+def load(settings, cik: int | None = None) -> pd.DataFrame:
+    """The whole history, or one company's without reading the rest into memory."""
+    return pd.read_parquet(path(settings), filters=None if cik is None else [("cik", "==", int(cik))])
