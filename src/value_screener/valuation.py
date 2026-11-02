@@ -184,14 +184,14 @@ SCREEN_COLUMNS = [
     "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
     "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
     "interest_coverage", "net_cash", "coverage_ok", "debt_unknown", "tangible_book", "p_tbv", "p_tbv_pct",
-    "ncav", "p_ncav",
+    "ncav", "p_ncav", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]
 
 
 def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
-                 settings: Settings, history_df=None) -> pd.DataFrame:
+                 settings: Settings, history_df=None, trend_df=None) -> pd.DataFrame:
     """Pure core: join the phase outputs, compute metrics, score and label."""
     df = (universe_df[["ticker", "name", "exchange", "cik"]]
           .merge(industry_df, on="ticker", how="left")
@@ -201,16 +201,18 @@ def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
         df["stale"] = True
     df = normalized.add_normalized(score(compute_metrics(df), settings), history_df, settings)
     df = survival.add_survival(df, history_df, settings)
+    if trend_df is not None and len(trend_df):
+        df = df.merge(trend_df, on="ticker", how="left")
     order = {lab: i for i, lab in enumerate(LABELS)}
     df = df.sort_values(["label", "composite_pct"], key=lambda s: s.map(order) if s.name == "label" else s)
     return df.reindex(columns=SCREEN_COLUMNS).reset_index(drop=True)
 
 
 def refresh(settings: Settings, universe_df, industry_df, fundamentals_df, prices_df,
-            history_df=None, *, verbose: bool = True) -> pd.DataFrame:
+            history_df=None, trend_df=None, *, verbose: bool = True) -> pd.DataFrame:
     import datetime as dt
 
-    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings, history_df)
+    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings, history_df, trend_df)
     df.to_parquet(settings.data_dir / "screen.parquet", index=False)
     hist = settings.data_dir / "history"
     hist.mkdir(parents=True, exist_ok=True)

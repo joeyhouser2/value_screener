@@ -143,9 +143,12 @@ lens and two new screens; the existing `label` column is unchanged.
       Short-history names aren't all young: BLK and FERG may need predecessor CIKs (unconfirmed).
 
 9d — Price trend (for the "is it turning?" check; yfinance, cached)
-- [ ] 1-year daily history per ticker in the existing batched download: % off 52w high,
-      12-1 month momentum, price vs 200-day average
-- [ ] Shown as context only, never required to pass a screen
+- [x] 400 days of daily history per ticker in its own batched download (`trend.py`), so a
+      failure can't touch market caps or labels: % off 52w high, 12-1 month momentum (total
+      return), price vs 200-day average; cached per day in `data/cache/prices/`
+- [x] Shown as context only, never required to pass a screen
+      Known gaps: a run during market hours takes the live price as today's close (also true
+      of the screen's price); momentum on serial reverse-splitters depends on Yahoo's adjustment
 
 9e — New screens (columns `deep_value`, `cyclical_trough`, plus `*_reasons`)
 - [ ] Deep value: (P/TBV in industry's cheapest 20% OR P/NCAV < 1 OR EV/sales cheapest 20%)

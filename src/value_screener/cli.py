@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import errors, fundamentals, history, industry, prices, sec, universe, valuation
+from . import errors, fundamentals, history, industry, prices, sec, trend, universe, valuation
 from .config import REPO_ROOT, load_settings
 
 LABEL_ALIASES = {"undervalued": "Undervalued", "fair": "Fair", "overvalued": "Overvalued",
@@ -33,7 +33,8 @@ def cmd_refresh(args) -> int:
     ind = industry.refresh(s, client, uni)
     fund = fundamentals.refresh(s, client, uni)
     px = prices.refresh(s, uni, fund)
-    screen = valuation.refresh(s, uni, ind, fund, px, history.load(s))
+    tr = trend.refresh(s, uni)
+    screen = valuation.refresh(s, uni, ind, fund, px, history.load(s), tr)
 
     n_err = max(0, sum(1 for _ in errors.errors_path(s.data_dir).open(encoding="utf-8")) - 1)
     print(f"Done in {time.time() - t0:.0f}s: {len(screen)} stocks, {client.calls} SEC requests, "
