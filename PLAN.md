@@ -194,13 +194,87 @@ lens and two new screens; the existing `label` column is unchanged.
       Known gaps: only those two were checked; other SIC 6411 names may be insurers too (ARX?).
       These tests show the figures are computed as intended, not that the screens beat anything
 
-## Phase 10 — Validation (outline; plan in detail after Phase 9)
-- [ ] Point-in-time panel from `filed` dates (no look-ahead), quarterly rebalance dates
-- [ ] Forward returns vs SPY, RSP (equal weight) and IWD (Russell 1000 Value), after costs
-- [ ] Measure each screen against a plain "cheapest earnings yield" baseline
-- [ ] Survivorship caveat: today's listings lack delisted names; flag results as optimistic
-      until a delisted-ticker source is added
-- [ ] Forward-track the weekly `data/history/` snapshots as a no-look-ahead test
+## Phase 10 — Validation
+Question: did `deep_value` and `cyclical_trough` beat the nominal S&P, and a cheap, dumb
+alternative, using only what was knowable at the time? A "no" is a valid result.
+
+What a feasibility check found (Nov 2026, on the real cache):
+- Replay works: the slim cache keeps every filed value with its `filed` date, so filtering
+  rows by date and rerunning `extract` and `company_history` rebuilds what was known, with
+  restatements undone (GE has 777 periods with more than one filed value)
+- Cost: 640 ms per company per date, or 31 core-hours for 4,400 companies x 40 dates
+- History limits the test window (companies with enough fiscal years filed by then):
+
+      end of     >=5 yrs   >=7 yrs   >=10 yrs
+      2016         1,983         9          0
+      2018         2,324     1,992          2
+      2020         2,537     2,318        148
+      2022         2,793     2,532      2,174
+
+  So `cyclical_trough` (needs 7 years) can only start around the end of 2018, and P/E10 is
+  a true 10-year figure only from 2022. That's about eight years, with one or two cycles
+- Survivorship: Yahoo has no prices for SIVB, FRC, WLL or SHLDQ, and tickers get reused (BBBY
+  starts in July 2026). Failures are missing, and distressed cyclicals are exactly what
+  `cyclical_trough` buys, so its results will be flattered the most
+- Replay bug: when a tag changes, `extract` can pair new earnings with old revenue (MU, June
+  2019: $30.4B from FY2018, when trailing revenue was about $27B). Revenue lags net income by
+  over 120 days for 4-8% of companies at the dates sampled, and is missing for 3-17%
+
+10a — Forward tracking (first: it costs little, and every week not recorded is lost)
+- [ ] `value-screener track`: each snapshot's screens, returns since, vs SPY, RSP, IWD
+- [ ] Exclude snapshots from before Phase 9 (no screen columns); weekly job runs it
+      The only test free of look-ahead and survivorship, but it needs years to mean anything
+
+10b — Point-in-time panel (`backtest/`, resumable, one cached Parquet per date)
+- [ ] `as_of(slim, date)` and a replay of the existing pipeline code, not a second copy of it
+- [ ] Fix the MU bug first (stale flows treated as missing), which also protects live runs
+- [ ] Price history: daily Close, Adj Close, Volume and split events per ticker, cached; the
+      batch time limit and retries from `trend.py`
+- [ ] Past market cap = shares known then x that day's unadjusted close. Yahoo's Close is
+      split-adjusted, so undo later splits. Today's Nasdaq and Yahoo cap fallbacks have no
+      history: compare against live caps and report how many companies this gets wrong
+- [ ] Key on CIK; drop price history from before a reused ticker's first filing
+- [ ] Gate: replay at today's date must closely reproduce today's `screen.parquet`. Report
+      the match rate, and don't go on until differences are understood
+- [ ] Test on hand-built slims that a figure filed one day after the date is not visible
+      Known gaps: SIC codes and `ticker_overrides` are today's, not those of the past
+
+10c — Survivorship: measure the hole before trusting anything inside it
+- [ ] From EDGAR's free quarterly form indexes, count 10-K filers per year missing from
+      today's universe, by size where filings allow. This is the size of the bias
+- [ ] Stress test: how many missing names, at what loss, would erase each screen's excess?
+- [ ] Decide on paid delisted prices only if results survive this far (see open decisions)
+
+10d — Backtest
+- [ ] Freeze rules first: commit screen settings and these criteria before any result is seen.
+      Every variant tried gets reported, not only the best
+- [ ] Equal weight, rebalanced quarterly at the next close after the date; `deep_value` from
+      2017 (2012 as a longer check on its own), `cyclical_trough` from the end of 2018
+- [ ] Costs by size (one way: 10 bps over $10B, 30 bps $2-10B, 75 bps $300M-2B, 150 bps below),
+      names under a minimum dollar volume excluded, as thin stocks can't be traded at their close
+- [ ] Compare with, on the same dates and total-return basis:
+      SPY (the goal), RSP and IWD; every stock in the same universe, equal weight, which
+      shares its survivorship bias and so is the fairest test; and the cheapest 10% by earnings
+      yield, the dumb alternative. If that matches a screen, the screen adds nothing
+- [ ] Report: return and excess per year, max drawdown, worst year, stocks held per quarter,
+      turnover; t-statistic with a block bootstrap, as overlapping returns aren't independent
+- [ ] Sensitivity: each threshold moved up and down, `turning` on and off, 3 / 12 / 36 month
+      holds, large caps only, without financials, each sector removed in turn, and by
+      subperiod. An edge living in one sector or one year, or at one setting, isn't an edge
+
+10e — Verdict
+- [ ] Written result in `docs/`, including failures and what the test can't show
+- [ ] Passes only if, after costs, a screen beats SPY, the same-universe equal weight and the
+      cheapest-10% baseline; holds up in most subperiods and with large caps only; and its
+      excess outlasts the survivorship stress test
+- [ ] If it fails: say so. Don't tune until it passes, as that fits the screens to one history.
+      Any change gets judged by forward tracking, not by rerunning this window
+
+Open decisions
+- Paid delisted prices (Sharadar, Norgate or similar): without them, 10d can reject a screen
+  more convincingly than it can confirm one. Decide after 10c
+- Costs and pass criteria above are proposals: agree them before 10d, as they can't fairly
+  change after
 
 ## Known pitfalls
 - Inconsistent XBRL tags (Revenues vs RevenueFromContractWithCustomer...) -> fallback lists
