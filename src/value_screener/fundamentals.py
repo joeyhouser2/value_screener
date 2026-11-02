@@ -29,8 +29,13 @@ from .config import Settings
 from .sec import SecClient
 
 FLOW_FIELDS_FOR_ASOF = ("revenue", "net_income")
-ROW_FIELDS = ("revenue", "net_income", "operating_income", "d_and_a", "eps_diluted",
-              "operating_cash_flow", "capex", "dividends", "equity", "cash", "shares_outstanding")
+# Proxy statements (DEF 14A and friends) tag net income in their pay table, sometimes in
+# millions, and as the latest filing would replace the 10-K (FDX: $4,433). Other forms stay:
+# S-1 and 6-K are the only source for recent IPOs and some foreign filers.
+PROXY_FORM = "14A"
+ROW_FIELDS = ("revenue", "net_income", "operating_income", "pretax_income", "interest_expense",
+              "d_and_a", "eps_diluted", "operating_cash_flow", "capex", "dividends", "equity",
+              "cash", "shares_outstanding")
 # Concepts the TTM row needs; the rest of xbrl_tags.yaml is for annual history only
 # (and TTM construction is the slow part, so don't build what nobody reads).
 TTM_CONCEPTS = frozenset(ROW_FIELDS) | {"debt_total", "debt_noncurrent", "debt_current",
@@ -95,6 +100,7 @@ def _frame(rows) -> pd.DataFrame:
     for c in ("start", "end", "filed"):
         df[c] = pd.to_datetime(df[c], format="%Y-%m-%d", errors="coerce")  # ISO; no inference
     df["val"] = pd.to_numeric(df["val"], errors="coerce")
+    df = df[~df["form"].str.contains(PROXY_FORM, na=False)]
     return df.dropna(subset=["end", "val"])
 
 

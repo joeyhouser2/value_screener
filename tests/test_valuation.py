@@ -117,3 +117,29 @@ def test_build_screen_joins_and_sorts():
     out = v.build_screen(uni, ind, fund, px, Settings(min_peers=2))
     assert list(out.columns) == v.SCREEN_COLUMNS
     assert out["ticker"].tolist() == ["A", "B"]
+
+
+def test_ebit_falls_back_to_pretax_plus_interest():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0, 100.0, 100.0], "operating_income": [20.0, None, None],
+        "pretax_income": [99.0, 15.0, 15.0], "interest_expense": [1.0, 5.0, None],
+        "d_and_a": [10.0, 10.0, 10.0]}))
+    assert df["ebit"].tolist() == [20, 20, 15]
+    assert df["ebitda"].tolist() == [30, 30, 25]
+
+
+def test_stale_operating_income_not_paired_with_current_revenue():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0, 100.0], "as_of": pd.to_datetime(["2026-08-31", "2026-08-31"]),
+        "operating_income": [50.0, 50.0],
+        "operating_income_end": pd.to_datetime(["2021-08-31", "2026-08-31"]),
+        "pretax_income": [15.0, 15.0], "pretax_income_end": pd.to_datetime(["2026-08-31"] * 2),
+        "interest_expense": [5.0, 5.0], "interest_expense_end": pd.to_datetime(["2026-08-31"] * 2)}))
+    assert df["ebit"].tolist() == [20, 50]
+
+
+def test_stale_d_and_a_still_used():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0], "net_income": [10.0], "as_of": pd.to_datetime(["2026-08-31"]),
+        "d_and_a": [5.0], "d_and_a_end": pd.to_datetime(["2021-08-31"])}))
+    assert df["p_ffo"].iloc[0] == pytest.approx(100 / 15)

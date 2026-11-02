@@ -29,6 +29,9 @@ class Settings:
     overvalued_pct: float = 0.80
     min_metrics: int = 2
     quality_max_de_pct: float = 0.80
+    normalized_window: int = 10
+    normalized_min_years: int = 5
+    cyclical_margin_vol: float = 0.10
     data_dir: Path = field(default=REPO_ROOT / "data")
     config_dir: Path = field(default=CONFIG_DIR)
 

@@ -69,8 +69,7 @@ Labels:
 
 First full run (2026-10-31): 382 Undervalued, 2,804 Fair, 753 Overvalued, 1,410 Insufficient data.
 Open issues: a few SIC groups look odd (SSRM in Holding & Investment Cos). XOM's missing net
-income is fixed (predecessor CIK merge). Filers without OperatingIncomeLoss (XOM, DHI) have no
-EV/EBITDA in the TTM screen.
+income is fixed (predecessor CIK merge).
 
 ## Phase 9 — Deep value & cyclical value  (`history.py`, `normalized.py`)
 Why: TTM multiples + the positive-earnings quality filter reject cyclicals at the trough
@@ -98,19 +97,26 @@ lens and two new screens; the existing `label` column is unchanged.
       current assets/liabilities) -> NCAV and current-ratio tests N/A there
 
 9b — Normalized ("through-the-cycle") valuation
-- [ ] `years_history` (need >= 5 FY for normalized metrics, >= 7 to call a cycle)
-- [ ] P/E10: price / mean diluted EPS over up to 10 FYs (EPS, not net income, so dilution counts)
-- [ ] Mid-cycle EBIT = median operating margin over the window x TTM revenue;
+- [x] `years_history` (need >= 5 FY for normalized metrics, >= 7 to call a cycle)
+- [x] P/E10: market cap / mean net income over up to 10 FYs, each year restated to today's
+      share count. Reported EPS can't be averaged (old years aren't split-adjusted), so split
+      jumps are removed from the share count by ratio. Flatters diluters -> `share_cagr`
+- [x] Mid-cycle EBIT = median EBIT margin over the window x TTM revenue;
       EV / mid-cycle EBIT (handles growth better than plain averaging)
-- [ ] Normalized FCF yield = mean FCF over the window / market cap
-- [ ] `margin_position`: where TTM operating margin sits in its own 10-yr range
-      (0 = trough, 1 = peak); `margin_cv` (volatility) and `loss_years`
-- [ ] `cyclical` flag: industry listed in `sic_groups.yaml` (`cyclical: true` on Energy,
+- [x] Normalized FCF yield = mean FCF over the window / market cap
+- [x] `margin_position`: percentile of the TTM margin among its own FY margins
+      (0 = below every year, 1 = above every year); `margin_vol` and `loss_years`
+- [x] `cyclical` flag: industry listed in `sic_groups.yaml` (`cyclical: true` on Energy,
       Metals & Mining, Chemicals, Semis, Autos, Homebuilders, Transportation, Machinery,
-      ...) OR margin_cv above a settings threshold
-- [ ] Industry cycle position = median `margin_position` of its members (flags whole
+      ...) OR `margin_vol` >= `cyclical_margin_vol` (not financials / REITs)
+- [x] Industry cycle position = median `margin_position` of its members (flags whole
       industries at a trough, which peer-relative ranks can't see)
-- [ ] Peer percentiles for the normalized metrics via the existing `_peer_pct`
+- [x] Peer percentiles for the normalized metrics via the existing `_peer_pct`
+- [x] Data fixes found on the way: proxy-statement XBRL no longer replaces 10-K values (FDX);
+      EBIT falls back to pretax + interest, and a tag abandoned > 120 days before the latest
+      period no longer pairs with current revenue (LEN's operating income ended in 2021)
+      Known gaps: stale capex (665 companies), dividends (537) and D&A (298) are still used
+      as-is. A real offering that exactly doubles the share count passes as a split.
 
 9c — Survival / quality (replaces "profitable now" for these screens)
 - [ ] Piotroski F-score (9 binary tests from this FY vs last FY); `f_score_n` = tests computable
@@ -128,6 +134,7 @@ lens and two new screens; the existing `label` column is unchanged.
       AND F-score >= 6 AND Altman Z > 1.8 (when defined) AND coverage >= 2
 - [ ] Cyclical trough: cyclical AND years_history >= 7 AND margin_position <= 0.33
       AND P/E10 or EV/mid-cycle EBIT in industry's cheapest 30% AND survival checks
+- [ ] Dilution guard: serial diluters fail both screens on `share_cagr` (P/E10 flatters them)
 - [ ] `turning` hint: revenue YoY improving or price above 200-day (informational)
 - [ ] All thresholds in `config/settings.yaml`; financials excluded from Altman / NCAV
 

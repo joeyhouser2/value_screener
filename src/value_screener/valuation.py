@@ -26,6 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import normalized
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -36,6 +37,7 @@ METRIC_SETS = {
     "reit": ["p_ffo", "pb"],
     None: ["pe", "ev_ebitda", "ps", "fcf_yield"],
 }
+MAX_FLOW_LAG_DAYS = 120     # about one missed quarterly filing
 ALL_SCORED = sorted({m for ms in METRIC_SETS.values() for m in ms})
 LABELS = ("Undervalued", "Fair", "Overvalued", "Insufficient data")
 
@@ -48,9 +50,19 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Add multiples, yields, Graham number, ROE and debt/equity."""
     df = df.copy()
     num = lambda c: pd.to_numeric(df[c], errors="coerce") if c in df else pd.Series(np.nan, index=df.index)
+
+    def current(c):
+        """A flow, unless its tag stopped being filed long before the company's latest
+        period: LEN's operating income ended in 2021, so it can't pair with 2026 revenue."""
+        if f"{c}_end" not in df or "as_of" not in df:
+            return num(c)
+        lag = pd.to_datetime(df["as_of"]) - pd.to_datetime(df[f"{c}_end"])
+        return num(c).where(~(lag > pd.Timedelta(days=MAX_FLOW_LAG_DAYS)))
+
     mcap, ni, rev, eq = num("market_cap"), num("net_income"), num("revenue"), num("equity")
     debt, cash = num("total_debt").fillna(0.0), num("cash").fillna(0.0)
-    da, oi = num("d_and_a"), num("operating_income")
+    # An old D&A only approximates; dropping it would cost REITs their P/FFO and label.
+    da, oi = num("d_and_a"), current("operating_income")
     ocf, capex = num("operating_cash_flow"), num("capex").fillna(0.0)
     shares, price = num("shares_outstanding"), num("price")
 
@@ -58,7 +70,9 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["ps"] = mcap / _pos(rev)
     df["pb"] = mcap / _pos(eq)
     df["enterprise_value"] = mcap + debt - cash
-    df["ebitda"] = oi + da
+    # Many filers (XOM, DHI) never tag operating income: pretax + interest stands in.
+    df["ebit"] = oi.fillna(current("pretax_income") + current("interest_expense").fillna(0.0))
+    df["ebitda"] = df["ebit"] + da
     df["ev_ebitda"] = _pos(df["enterprise_value"]) / _pos(df["ebitda"])
     df["fcf"] = ocf - capex
     df["fcf_yield"] = df["fcf"] / _pos(mcap)
@@ -151,13 +165,16 @@ SCREEN_COLUMNS = [
     "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo", "dividend_yield", "peg",
     "earnings_growth", "price_to_graham", "graham_number", "roe", "debt_to_equity",
     *[f"{m}_pct" for m in ALL_SCORED],
-    "revenue", "net_income", "fcf", "ebitda", "equity", "total_debt", "cash",
+    "pe10", "ev_midcycle_ebit", "norm_fcf_yield", *[f"{m}_pct" for m in normalized.PEER_METRICS],
+    "margin_position", "industry_cycle_position", "cyclical", "median_margin", "margin_vol",
+    "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
+    "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]
 
 
 def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
-                 settings: Settings) -> pd.DataFrame:
+                 settings: Settings, history_df=None) -> pd.DataFrame:
     """Pure core: join the phase outputs, compute metrics, score and label."""
     df = (universe_df[["ticker", "name", "exchange", "cik"]]
           .merge(industry_df, on="ticker", how="left")
@@ -165,17 +182,17 @@ def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
           .merge(prices_df[["ticker", "price", "price_date", "market_cap"]], on="ticker", how="left"))
     if "stale" not in df:
         df["stale"] = True
-    df = score(compute_metrics(df), settings)
+    df = normalized.add_normalized(score(compute_metrics(df), settings), history_df, settings)
     order = {lab: i for i, lab in enumerate(LABELS)}
     df = df.sort_values(["label", "composite_pct"], key=lambda s: s.map(order) if s.name == "label" else s)
     return df.reindex(columns=SCREEN_COLUMNS).reset_index(drop=True)
 
 
 def refresh(settings: Settings, universe_df, industry_df, fundamentals_df, prices_df,
-            *, verbose: bool = True) -> pd.DataFrame:
+            history_df=None, *, verbose: bool = True) -> pd.DataFrame:
     import datetime as dt
 
-    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings)
+    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings, history_df)
     df.to_parquet(settings.data_dir / "screen.parquet", index=False)
     hist = settings.data_dir / "history"
     hist.mkdir(parents=True, exist_ok=True)

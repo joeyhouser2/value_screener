@@ -33,3 +33,8 @@ min_metrics: 2              # fewer valuation metrics than this -> "Insufficient
 
 # Quality filter (value-trap guard) for Undervalued
 quality_max_de_pct: 0.80    # debt/equity must be under this industry percentile
+
+# Through-the-cycle metrics
+normalized_window: 10       # fiscal years averaged
+normalized_min_years: 5     # fewer years of data -> normalized metric is missing
+cyclical_margin_vol: 0.10   # margin std dev (10 points) that marks a company cyclical

@@ -214,3 +214,22 @@ def test_refresh_parses_in_processes_and_logs_bad_tickers(tmp_path):
     h = history.load(s)
     assert set(h["cik"]) == {1} and len(h[h["concept"] == "revenue"]) == 2
     assert "GONE" in (tmp_path / "errors.csv").read_text(encoding="utf-8")
+
+
+def test_proxy_statement_values_do_not_replace_the_10k():
+    rows = [r("2025-06-01", "2026-05-31", 4433000000, filed="2026-07-20", form="10-K"),
+            r("2025-06-01", "2026-05-31", 4433, filed="2026-08-17", form="DEF 14A"),
+            r("2024-06-01", "2025-05-31", 4000, filed="2026-08-17", form="DEF 14A")]
+    v = f.flow_value(rows)
+    assert v["val"] == 4433000000 and v["prev"] is None
+
+
+def test_amended_filings_still_count():
+    rows = [r("2025-01-01", "2025-12-31", 100, filed="2026-02-01", form="10-K"),
+            r("2025-01-01", "2025-12-31", 90, filed="2026-03-01", form="10-K/A")]
+    assert f.flow_value(rows)["val"] == 90
+
+
+def test_registration_statements_still_count():
+    rows = [r("2025-01-01", "2025-12-31", 70, filed="2026-03-01", form="S-1")]
+    assert f.flow_value(rows)["val"] == 70
