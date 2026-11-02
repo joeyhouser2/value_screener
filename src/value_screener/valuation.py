@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import normalized
+from . import normalized, survival
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -168,6 +168,9 @@ SCREEN_COLUMNS = [
     "pe10", "ev_midcycle_ebit", "norm_fcf_yield", *[f"{m}_pct" for m in normalized.PEER_METRICS],
     "margin_position", "industry_cycle_position", "cyclical", "median_margin", "margin_vol",
     "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
+    "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
+    "interest_coverage", "net_cash", "coverage_ok", "tangible_book", "p_tbv", "p_tbv_pct",
+    "ncav", "p_ncav",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]
@@ -183,6 +186,7 @@ def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
     if "stale" not in df:
         df["stale"] = True
     df = normalized.add_normalized(score(compute_metrics(df), settings), history_df, settings)
+    df = survival.add_survival(df, history_df, settings)
     order = {lab: i for i, lab in enumerate(LABELS)}
     df = df.sort_values(["label", "composite_pct"], key=lambda s: s.map(order) if s.name == "label" else s)
     return df.reindex(columns=SCREEN_COLUMNS).reset_index(drop=True)

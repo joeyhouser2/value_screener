@@ -119,10 +119,20 @@ lens and two new screens; the existing `label` column is unchanged.
       as-is. A real offering that exactly doubles the share count passes as a split.
 
 9c — Survival / quality (replaces "profitable now" for these screens)
-- [ ] Piotroski F-score (9 binary tests from this FY vs last FY); `f_score_n` = tests computable
-- [ ] Altman Z (Z for manufacturers, Z'' for non-manufacturers; N/A for banks/insurers/REITs)
-- [ ] Interest coverage = EBIT / interest expense (net-cash companies pass automatically)
-- [ ] Tangible book, P/TBV, NCAV = current assets - total liabilities, P/NCAV
+- [x] Piotroski F-score (9 binary tests from this FY vs last FY); `f_score_n` = tests computable
+- [x] Altman Z (Z for manufacturers, Z'' for non-manufacturers; N/A for banks/insurers/REITs,
+      brokers/exchanges); `altman_zone` because the two scales have different cutoffs
+- [x] Interest coverage = EBIT / interest expense; `coverage_ok` passes net-cash companies
+- [x] Tangible book, P/TBV, NCAV = current assets - total liabilities, P/NCAV
+      Balance-sheet figures use the latest filing (10-Q included), only when dates match.
+      Coverage of 5,349: F-score 4,429, Altman 3,198, coverage_ok 3,266, P/TBV 3,214, P/NCAV 1,503.
+      Known gaps: homebuilders mostly get no Altman (unclassified balance sheets); captive
+      finance arms (F) distort Altman and coverage; many microcap ADRs show P/NCAV near 0
+      (UPC 0.0002), which looks like bad data; debt-free filers often lose the leverage test
+      (no tag), so raw F-scores read low.
+- [ ] Stale / missing debt: 839 live companies have a debt tag > 400 days old, and EV and
+      debt/equity still use it (ORCL shows 0 from 2022, DE $32B from 2022, F ends 2020).
+      Find the missing tags (needs one cold refetch), then treat what's left as unknown
 
 9d — Price trend (for the "is it turning?" check; yfinance, cached)
 - [ ] 1-year daily history per ticker in the existing batched download: % off 52w high,
@@ -131,9 +141,14 @@ lens and two new screens; the existing `label` column is unchanged.
 
 9e — New screens (columns `deep_value`, `cyclical_trough`, plus `*_reasons`)
 - [ ] Deep value: (P/TBV in industry's cheapest 20% OR P/NCAV < 1 OR EV/sales cheapest 20%)
-      AND F-score >= 6 AND Altman Z > 1.8 (when defined) AND coverage >= 2
+      AND F-score >= 6 AND survival checks. P/NCAV needs a floor and a minimum market cap
+      (155 of 243 names were under $25M, some with impossible values)
 - [ ] Cyclical trough: cyclical AND years_history >= 7 AND margin_position <= 0.33
       AND P/E10 or EV/mid-cycle EBIT in industry's cheapest 30% AND survival checks
+- [ ] Survival checks: `coverage_ok` not False AND not (Altman distress without coverage_ok).
+      Not a plain Altman gate: Z'' puts 203 large profitable companies in distress (LOW, HCA,
+      NOW), since it ignores market value and punishes buybacks and deferred revenue.
+      Compare F-score to `f_score_n`, as a score of 6 of 7 differs from 6 of 9
 - [ ] Dilution guard: serial diluters fail both screens on `share_cagr` (P/E10 flatters them)
 - [ ] `turning` hint: revenue YoY improving or price above 200-day (informational)
 - [ ] All thresholds in `config/settings.yaml`; financials excluded from Altman / NCAV

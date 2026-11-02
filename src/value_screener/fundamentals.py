@@ -35,7 +35,9 @@ FLOW_FIELDS_FOR_ASOF = ("revenue", "net_income")
 PROXY_FORM = "14A"
 ROW_FIELDS = ("revenue", "net_income", "operating_income", "pretax_income", "interest_expense",
               "d_and_a", "eps_diluted", "operating_cash_flow", "capex", "dividends", "equity",
-              "cash", "shares_outstanding")
+              "cash", "shares_outstanding", "assets", "assets_current", "liabilities",
+              "liabilities_and_equity", "equity_incl_nci", "liabilities_current",
+              "retained_earnings", "goodwill", "intangibles")
 # Concepts the TTM row needs; the rest of xbrl_tags.yaml is for annual history only
 # (and TTM construction is the slow part, so don't build what nobody reads).
 TTM_CONCEPTS = frozenset(ROW_FIELDS) | {"debt_total", "debt_noncurrent", "debt_current",

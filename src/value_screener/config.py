@@ -32,6 +32,11 @@ class Settings:
     normalized_window: int = 10
     normalized_min_years: int = 5
     cyclical_margin_vol: float = 0.10
+    min_interest_coverage: float = 2.0
+    altman_z_distress: float = 1.81
+    altman_z_safe: float = 2.99
+    altman_z2_distress: float = 1.10
+    altman_z2_safe: float = 2.60
     data_dir: Path = field(default=REPO_ROOT / "data")
     config_dir: Path = field(default=CONFIG_DIR)
 

@@ -94,7 +94,7 @@ concepts:
     unit: USD
     tags: [ShortTermBorrowings, CommercialPaper]
   # --- Balance-sheet / income items for annual history (Phase 9: F-score, Altman Z,
-  # NCAV, interest coverage). Not used by the TTM screen.
+  # NCAV, interest coverage). Gross profit and cost of revenue are history only.
   gross_profit:
     kind: flow
     unit: USD

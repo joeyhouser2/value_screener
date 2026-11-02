@@ -38,3 +38,10 @@ quality_max_de_pct: 0.80    # debt/equity must be under this industry percentile
 normalized_window: 10       # fiscal years averaged
 normalized_min_years: 5     # fewer years of data -> normalized metric is missing
 cyclical_margin_vol: 0.10   # margin std dev (10 points) that marks a company cyclical
+
+# Survival checks
+min_interest_coverage: 2.0  # EBIT / interest expense (net-cash companies pass anyway)
+altman_z_distress: 1.81     # Z, manufacturers: below this is distress, above safe is safe
+altman_z_safe: 2.99
+altman_z2_distress: 1.10    # Z'', everyone else: a different scale, so its own cutoffs
+altman_z2_safe: 2.60
