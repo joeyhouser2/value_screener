@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import fundamentals, history, normalized, peers
+from . import errors, fundamentals, history, normalized, peers
 from .config import Settings
 
 NO_ALTMAN = (*normalized.FINANCIALS, "reit")
@@ -114,11 +114,15 @@ def altman(x1, x2, x3, mcap_to_liab, book_to_liab, x5, manufacturer):
     return z.where(manufacturer), z2.where(~manufacturer)
 
 
-def _company_table(history_df: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+def _company_table(history_df: pd.DataFrame, df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     ctx = df.dropna(subset=["cik"]).drop_duplicates("cik")
     special = dict(zip(ctx["cik"].astype("int64"), ctx["special"]))
-    rows = [{"cik": cik, **f_score(g, special=special.get(cik))}
-            for cik, g in history.wide(history_df).groupby("cik")]
+    rows = []
+    for cik, g in history.wide(history_df).groupby("cik"):
+        try:
+            rows.append({"cik": cik, **f_score(g, special=special.get(cik))})
+        except Exception as exc:  # noqa: BLE001 - logged, run continues
+            errors.log(settings.data_dir, "survival", str(cik), exc)
     return pd.DataFrame(rows, columns=["cik", *COMPANY_COLUMNS])
 
 
@@ -189,7 +193,7 @@ def add_survival(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: Se
 
     table = pd.DataFrame(columns=["cik", *COMPANY_COLUMNS])
     if history_df is not None and len(history_df) and "cik" in df:
-        table = _company_table(history_df, df)
+        table = _company_table(history_df, df, settings)
     if "cik" in df:
         table = table.astype({"cik": "float64", "f_score": "float64", "f_score_n": "float64",
                               "f_score_fy": "datetime64[ns]"})

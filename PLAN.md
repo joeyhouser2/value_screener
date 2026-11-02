@@ -184,10 +184,15 @@ lens and two new screens; the existing `label` column is unchanged.
       year is lost (AAPL 2016: 2.18 vs 2.08). The dashboard's $300M default hides small passers
 
 9g — Tests
-- [ ] Synthetic boom-bust company: trough flagged, peak not; P/E10 and margin_position by hand
-- [ ] F-score and Altman Z against hand-computed fixtures; financials get N/A, not 0
-- [ ] Real fixtures: XOM (predecessor merge + energy cycle), a homebuilder, a semi
-- [ ] Warm-cache rerun makes 0 SEC calls; one bad history row doesn't fail the run
+- [x] Synthetic boom-bust company: trough flagged, peak not; P/E10 and margin_position by hand
+- [x] F-score and Altman Z against hand-computed fixtures; financials get N/A, not 0
+- [x] Real fixtures: XOM (predecessor merge + energy cycle), a homebuilder (LEN), a semi (MU)
+- [x] Warm-cache rerun makes 0 SEC calls; one bad history row doesn't fail the run. A company
+      whose P/E10 or F-score raised used to crash the run: now logged to `errors.csv`
+- [x] `ticker_overrides` in `sic_groups.yaml`: ACT and EQH file under SIC 6411 (brokers) but
+      underwrite, so they rank as insurers. Both leave the trough screen (81 -> 79)
+      Known gaps: only those two were checked; other SIC 6411 names may be insurers too (ARX?).
+      These tests show the figures are computed as intended, not that the screens beat anything
 
 ## Phase 10 — Validation (outline; plan in detail after Phase 9)
 - [ ] Point-in-time panel from `filed` dates (no look-ahead), quarterly rebalance dates

@@ -95,6 +95,11 @@ def label(universe_df: pd.DataFrame, subs: dict[int, dict], groups_cfg: dict,
             source = "yahoo"
         if hit is None:
             hit, source = UNCLASSIFIED, None
+        override = groups_cfg.get("ticker_overrides", {}).get(t)
+        if override:
+            hit = next((r["group"], r["sector"], r.get("special")) for r in groups_cfg["groups"]
+                       if r["group"] == override)
+            source = "override"
         group, sector, special = hit
         rows.append({"ticker": t, "sic": s.get("sic"), "sic_description": s.get("sic_description"),
                      "annual_form": s.get("annual_form"), "entity_type": s.get("entity_type"),

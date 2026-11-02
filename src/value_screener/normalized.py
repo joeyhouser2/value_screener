@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import history, industry, peers
+from . import errors, history, industry, peers
 from .config import Settings
 
 # Share-count ratios treated as splits (reverse splits are the reciprocals). 3-for-2
@@ -135,10 +135,13 @@ def company_table(history_df: pd.DataFrame, df: pd.DataFrame, settings: Settings
     current = dict(zip(ctx["cik"], margin))
     rows = []
     for cik, g in history.wide(history_df).groupby("cik"):
-        rows.append({"cik": cik, **company_metrics(
-            g, special=special.get(cik), current_margin=current.get(cik, np.nan),
-            window=settings.normalized_window, min_years=settings.normalized_min_years,
-            pe_min_years=settings.pe10_min_years)})
+        try:
+            rows.append({"cik": cik, **company_metrics(
+                g, special=special.get(cik), current_margin=current.get(cik, np.nan),
+                window=settings.normalized_window, min_years=settings.normalized_min_years,
+                pe_min_years=settings.pe10_min_years)})
+        except Exception as exc:  # noqa: BLE001 - logged, run continues
+            errors.log(settings.data_dir, "normalized", str(cik), exc)
     return pd.DataFrame(rows, columns=["cik", *COMPANY_COLUMNS])
 
 

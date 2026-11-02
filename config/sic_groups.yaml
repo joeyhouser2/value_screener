@@ -70,6 +70,12 @@ groups:
 # Yahoo fallback for tickers with no SIC: first keyword found in Yahoo's industry
 # (case-insensitive) picks the group; otherwise the Yahoo sector picks the sector
 # and the group becomes "Other <sector>".
+# Tickers whose SIC code misdescribes the business. SEC files these two under 6411
+# (agents and brokers), but they underwrite: Enact is a mortgage insurer, Equitable a life insurer.
+ticker_overrides:
+  ACT: Insurance
+  EQH: Insurance
+
 yahoo_industry_keywords:
   - [REIT, REITs]
   - [Bank, Banks]

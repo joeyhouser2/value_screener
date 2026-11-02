@@ -77,3 +77,14 @@ def test_placeholder_sics_fall_back():
     assert ind.classify_sic(8880, CFG) is None
     assert ind.classify_sic(7510, CFG)[0] == "Transportation"
     assert ind.classify_sic(7500, CFG)[0] == "Consumer Services"
+
+
+def test_ticker_override_beats_the_sic_code():
+    cfg = {"groups": [{"group": "Insurance Brokers", "sector": "Financials", "ranges": [[6400, 6411]]},
+                      {"group": "Insurance", "sector": "Financials", "special": "insurer", "ranges": [[6300, 6399]]}],
+           "ticker_overrides": {"ACT": "Insurance"}}
+    uni = pd.DataFrame({"ticker": ["ACT", "AON"], "cik": [1, 2]})
+    subs = {1: {"sic": "6411"}, 2: {"sic": "6411"}}
+    out = ind.label(uni, subs, cfg).set_index("ticker")
+    assert out.loc["ACT", "special"] == "insurer" and out.loc["ACT", "industry_source"] == "override"
+    assert out.loc["AON", "industry_group"] == "Insurance Brokers" and out.loc["AON", "industry_source"] == "sic"
