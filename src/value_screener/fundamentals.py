@@ -14,21 +14,61 @@ older than ``stale_months``. Adapted from ``stock_research/edgar.py``.
 from __future__ import annotations
 
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
+import os
+import threading
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
-from . import errors
+from . import errors, history
 from .config import Settings
 from .sec import SecClient
 
 FLOW_FIELDS_FOR_ASOF = ("revenue", "net_income")
+ROW_FIELDS = ("revenue", "net_income", "operating_income", "d_and_a", "eps_diluted",
+              "operating_cash_flow", "capex", "dividends", "equity", "cash", "shares_outstanding")
+# Concepts the TTM row needs; the rest of xbrl_tags.yaml is for annual history only
+# (and TTM construction is the slow part, so don't build what nobody reads).
+TTM_CONCEPTS = frozenset(ROW_FIELDS) | {"debt_total", "debt_noncurrent", "debt_current",
+                                        "notes_payable", "short_term_borrowings"}
 
 
 def load_tags(config_dir: Path) -> dict:
     return yaml.safe_load((config_dir / "xbrl_tags.yaml").read_text(encoding="utf-8"))["concepts"]
+
+
+def tags_fingerprint(tags_cfg: dict) -> str:
+    """Short hash of the tag config; the slimmed-facts cache is keyed on it, so adding
+    a tag triggers one cold refetch instead of silently reading slices without it."""
+    blob = json.dumps(tags_cfg, sort_keys=True).encode("utf-8")
+    return "t" + hashlib.sha1(blob).hexdigest()[:8]
+
+
+def load_predecessors(config_dir: Path) -> dict[int, list[int]]:
+    path = config_dir / "cik_predecessors.yaml"
+    if not path.exists():
+        return {}
+    raw = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("predecessors") or {}
+    return {int(k): [int(c) for c in v] for k, v in raw.items()}
+
+
+def merge_slims(slims: list[dict]) -> dict:
+    """Combine slimmed facts, oldest registrant first, successor last.
+
+    Rows are simply pooled: the readers keep the latest *filed* row per period, so
+    wherever periods overlap the successor's (later) filings win.
+    """
+    out = {"entity": slims[-1].get("entity"),
+           "taxonomies": sorted({t for s in slims for t in s.get("taxonomies") or []}),
+           "tags": {}}
+    for s in slims:
+        for tag, rows in (s.get("tags") or {}).items():
+            out["tags"].setdefault(tag, []).extend(rows)
+    return out
 
 
 def _split_tag(tag: str) -> tuple[str, str]:
@@ -53,7 +93,7 @@ def slim_facts(payload: dict, tags_cfg: dict) -> dict:
 def _frame(rows) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=["start", "end", "val", "filed", "form", "accn"])
     for c in ("start", "end", "filed"):
-        df[c] = pd.to_datetime(df[c], errors="coerce")
+        df[c] = pd.to_datetime(df[c], format="%Y-%m-%d", errors="coerce")  # ISO; no inference
     df["val"] = pd.to_numeric(df["val"], errors="coerce")
     return df.dropna(subset=["end", "val"])
 
@@ -173,14 +213,14 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
     """One row of fundamentals from a slimmed companyfacts payload."""
     readers = {"flow": flow_value, "instant": instant_value, "shares": shares_value}
     vals: dict[str, dict] = {}
-    for key, spec in tags_cfg.items():
-        vals[key], _ = _best(slim, spec, readers[spec["kind"]])
+    empty = {"val": None, "src": None, "end": None}
+    for key in TTM_CONCEPTS:
+        spec = tags_cfg.get(key)
+        vals[key] = _best(slim, spec, readers[spec["kind"]])[0] if spec else dict(empty)
 
     row: dict = {"entity": slim.get("entity"),
                  "us_gaap": "us-gaap" in (slim.get("taxonomies") or [])}
-    for key in ("revenue", "net_income", "operating_income", "d_and_a", "eps_diluted",
-                "operating_cash_flow", "capex", "dividends", "equity", "cash",
-                "shares_outstanding"):
+    for key in ROW_FIELDS:
         v = vals[key]
         row[key] = v["val"]
         row[f"{key}_src"] = v["src"]
@@ -197,6 +237,8 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
         debt_end = split_end
     else:
         debt, debt_end = tot["val"], tot["end"]
+    if debt is None and vals["notes_payable"]["val"] is not None:
+        debt, debt_end = vals["notes_payable"]["val"], vals["notes_payable"]["end"]
     stb = vals["short_term_borrowings"]
     if debt is not None and stb["val"] is not None and stb["end"] == debt_end:
         debt += stb["val"]
@@ -209,29 +251,87 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
     row["as_of"] = as_of
     today = pd.Timestamp(today or dt.date.today())
     row["stale"] = as_of is None or as_of < today - pd.DateOffset(months=stale_months)
+
+    # Recent US GAAP income filings but no 12-month figure yet: a new registrant,
+    # often a reorganization whose history sits under a predecessor CIK.
+    latest_flow = pd.to_datetime(max((r[1] for k in FLOW_FIELDS_FOR_ASOF for t in tags_cfg[k]["tags"]
+                                      for r in slim["tags"].get(t, []) if r[1]), default=None),
+                                 errors="coerce")    # ISO strings sort as dates
+    row["short_history"] = bool(as_of is None and pd.notna(latest_flow)
+                                and latest_flow >= today - pd.DateOffset(months=9))
     return row
+
+
+SHORT_HISTORY_MSG = ("short history: recent filings but no 12-month figures yet "
+                     "(new registrant? add its old CIK to config/cik_predecessors.yaml)")
+
+
+def parse_company(slims: list[dict], tags_cfg: dict, stale_months: int,
+                  history_years: int) -> tuple[dict, pd.DataFrame | None, list[tuple[str, str]]]:
+    """Process-pool worker: (TTM row, annual history, [(stage, message)] to log).
+
+    ``slims`` is predecessors first, the company itself last. Parsing is CPU-bound
+    pandas work, so it runs in processes; SEC fetching stays in threads behind the
+    one shared rate limiter.
+    """
+    slim = merge_slims(slims) if len(slims) > 1 else slims[0]
+    row = extract(slim, tags_cfg, stale_months=stale_months)
+    msgs = [("fundamentals", SHORT_HISTORY_MSG)] if row["short_history"] else []
+    try:
+        hist = history.company_history(slim, tags_cfg, max_years=history_years)
+    except Exception as exc:  # noqa: BLE001 - history is optional per company
+        hist = None
+        msgs.append(("history", f"{type(exc).__name__}: {exc}"))
+    return row, hist, msgs
 
 
 def refresh(settings: Settings, client: SecClient, universe_df: pd.DataFrame,
             *, verbose: bool = True) -> pd.DataFrame:
     tags_cfg = load_tags(settings.config_dir)
+    predecessors = load_predecessors(settings.config_dir)
     with_cik = universe_df.dropna(subset=["cik"])
     by_cik = with_cik.drop_duplicates("cik").set_index("cik")["ticker"]
+    variant = tags_fingerprint(tags_cfg)
+    slim_of = lambda c: client.company_facts(c, lambda p: slim_facts(p, tags_cfg), variant)
+    n_procs = max(1, (os.cpu_count() or 2) - 1)
+    gate = threading.BoundedSemaphore(4 * n_procs)     # bounds slims held in memory
 
-    def fetch(cik):
+    def fetch(cik, procs):
         ticker = by_cik.get(cik, str(cik))
         try:
-            slim = client.company_facts(cik, lambda p: slim_facts(p, tags_cfg))
+            slim = slim_of(cik)
             if slim is None:
                 errors.log(settings.data_dir, "fundamentals", ticker, "no companyfacts (404)")
                 return int(cik), None
-            return int(cik), extract(slim, tags_cfg, stale_months=settings.stale_months)
+            olds = [s for s in (slim_of(p) for p in predecessors.get(int(cik), [])) if s]
+            gate.acquire()
+            fut = procs.submit(parse_company, [*olds, slim], tags_cfg,
+                               settings.stale_months, settings.history_years)
+            fut.add_done_callback(lambda _: gate.release())
+            return int(cik), fut
         except Exception as exc:  # noqa: BLE001 - logged, run continues
             errors.log(settings.data_dir, "fundamentals", ticker, exc)
             return int(cik), None
 
-    with ThreadPoolExecutor(settings.sec_workers) as pool:
-        rows = dict(pool.map(fetch, by_cik.index))
+    rows: dict[int, dict] = {}
+    hist: dict[int, pd.DataFrame] = {}
+    with ProcessPoolExecutor(n_procs) as procs, ThreadPoolExecutor(settings.sec_workers) as pool:
+        futures = dict(pool.map(lambda c: fetch(c, procs), by_cik.index))
+        for cik, fut in futures.items():
+            if fut is None:
+                continue
+            ticker = by_cik.get(cik, str(cik))
+            try:
+                row, h, msgs = fut.result()
+            except Exception as exc:  # noqa: BLE001 - logged, run continues
+                errors.log(settings.data_dir, "fundamentals", ticker, exc)
+                continue
+            row["predecessor_ciks"] = ",".join(map(str, predecessors.get(cik, []))) or None
+            rows[cik] = row
+            if h is not None:
+                hist[cik] = h
+            for stage, msg in msgs:
+                errors.log(settings.data_dir, stage, ticker, msg)
 
     out = []
     for t, cik in zip(universe_df["ticker"], universe_df["cik"]):
@@ -239,10 +339,17 @@ def refresh(settings: Settings, client: SecClient, universe_df: pd.DataFrame,
         out.append({"ticker": t, **(r or {})})
     df = pd.DataFrame(out)
     df.to_parquet(settings.data_dir / "fundamentals.parquet", index=False)
+    hist_df = history.to_frame(hist)
+    hist_df.to_parquet(history.path(settings), index=False)
     if verbose:
         have = df["revenue"].notna() if "revenue" in df else pd.Series(False, index=df.index)
+        short = int(df.get("short_history", pd.Series(dtype=bool)).fillna(False).sum())
         print(f"Fundamentals: {int(have.sum())}/{len(df)} with revenue; "
-              f"{int(df.get('stale', pd.Series(dtype=bool)).fillna(True).sum())} stale or missing")
+              f"{int(df.get('stale', pd.Series(dtype=bool)).fillna(True).sum())} stale or missing; "
+              f"{short} short history (see errors.csv)")
+        years = hist_df.groupby("cik")["fy_end"].nunique() if len(hist_df) else pd.Series(dtype=int)
+        print(f"History: {len(years)} companies, median {years.median():.0f} fiscal years, "
+              f"{int((years >= 7).sum())} with >= 7")
     return df
 
 

@@ -68,8 +68,88 @@ Labels:
 - [x] Snapshot each run to `data/history/` so labels can be tracked over time
 
 First full run (2026-10-31): 382 Undervalued, 2,804 Fair, 753 Overvalued, 1,410 Insufficient data.
-Open issues: XOM shows no net income (check NetIncomeLoss tag selection); a few SIC groups
-look odd (SSRM in Holding & Investment Cos).
+Open issues: a few SIC groups look odd (SSRM in Holding & Investment Cos). XOM's missing net
+income is fixed (predecessor CIK merge). Filers without OperatingIncomeLoss (XOM, DHI) have no
+EV/EBITDA in the TTM screen.
+
+## Phase 9 — Deep value & cyclical value  (`history.py`, `normalized.py`)
+Why: TTM multiples + the positive-earnings quality filter reject cyclicals at the trough
+(when they're best bought) and favour them at peak earnings. Industry-relative ranks
+also miss whole industries that are cheap together. This phase adds a through-the-cycle
+lens and two new screens; the existing `label` column is unchanged.
+
+9a — Annual history (EDGAR, no new endpoints)
+- [x] New tags in `config/xbrl_tags.yaml`: Assets, AssetsCurrent, Liabilities,
+      LiabilitiesCurrent, RetainedEarningsAccumulatedDeficit, InterestExpense (+ fallbacks),
+      GrossProfit (+ CostOfRevenue fallback), Goodwill, IntangibleAssetsNetExcludingGoodwill
+      (+ pretax income for an EBIT fallback, weighted diluted shares, NotesPayable as
+      last-resort debt — the TTM screen now uses it too when no other debt tag exists)
+- [x] The companyfacts cache stores *slimmed* payloads, so key the cache on a hash of the
+      tag list: changing tags triggers one cold refetch (~30 min), then warm again
+      (`data/cache/sec/facts/t<hash>/`; the old unkeyed `facts/CIK*.json.gz` can be deleted)
+- [x] `history.py`: per company, fiscal-year values for every flow and FY-end instants ->
+      long-format `data/fundamentals_history.parquet` (cik, fy_end, concept, val, src, tag,
+      filed, first_filed); tags merged across switches, derived gross profit /
+      liabilities / total debt when not reported; `history_years` setting (15)
+- [x] Keep `filed` / `first_filed` so Phase 10 can rebuild point-in-time views; predecessor
+      CIKs merged
+      Known gaps: many filers (XOM, NUE, DHI, banks) don't tag OperatingIncomeLoss -> 9b uses
+      pretax income + interest; banks/homebuilders have unclassified balance sheets (no
+      current assets/liabilities) -> NCAV and current-ratio tests N/A there
+
+9b — Normalized ("through-the-cycle") valuation
+- [ ] `years_history` (need >= 5 FY for normalized metrics, >= 7 to call a cycle)
+- [ ] P/E10: price / mean diluted EPS over up to 10 FYs (EPS, not net income, so dilution counts)
+- [ ] Mid-cycle EBIT = median operating margin over the window x TTM revenue;
+      EV / mid-cycle EBIT (handles growth better than plain averaging)
+- [ ] Normalized FCF yield = mean FCF over the window / market cap
+- [ ] `margin_position`: where TTM operating margin sits in its own 10-yr range
+      (0 = trough, 1 = peak); `margin_cv` (volatility) and `loss_years`
+- [ ] `cyclical` flag: industry listed in `sic_groups.yaml` (`cyclical: true` on Energy,
+      Metals & Mining, Chemicals, Semis, Autos, Homebuilders, Transportation, Machinery,
+      ...) OR margin_cv above a settings threshold
+- [ ] Industry cycle position = median `margin_position` of its members (flags whole
+      industries at a trough, which peer-relative ranks can't see)
+- [ ] Peer percentiles for the normalized metrics via the existing `_peer_pct`
+
+9c — Survival / quality (replaces "profitable now" for these screens)
+- [ ] Piotroski F-score (9 binary tests from this FY vs last FY); `f_score_n` = tests computable
+- [ ] Altman Z (Z for manufacturers, Z'' for non-manufacturers; N/A for banks/insurers/REITs)
+- [ ] Interest coverage = EBIT / interest expense (net-cash companies pass automatically)
+- [ ] Tangible book, P/TBV, NCAV = current assets - total liabilities, P/NCAV
+
+9d — Price trend (for the "is it turning?" check; yfinance, cached)
+- [ ] 1-year daily history per ticker in the existing batched download: % off 52w high,
+      12-1 month momentum, price vs 200-day average
+- [ ] Shown as context only, never required to pass a screen
+
+9e — New screens (columns `deep_value`, `cyclical_trough`, plus `*_reasons`)
+- [ ] Deep value: (P/TBV in industry's cheapest 20% OR P/NCAV < 1 OR EV/sales cheapest 20%)
+      AND F-score >= 6 AND Altman Z > 1.8 (when defined) AND coverage >= 2
+- [ ] Cyclical trough: cyclical AND years_history >= 7 AND margin_position <= 0.33
+      AND P/E10 or EV/mid-cycle EBIT in industry's cheapest 30% AND survival checks
+- [ ] `turning` hint: revenue YoY improving or price above 200-day (informational)
+- [ ] All thresholds in `config/settings.yaml`; financials excluded from Altman / NCAV
+
+9f — CLI, export, dashboard
+- [ ] `screen --label deep-value | cyclical-trough`; export adds one sheet per new screen
+- [ ] Dashboard: new screen filters, an industry cycle-position table, and a 10-yr
+      revenue / margin / EPS chart for the selected stock
+- [ ] New columns included in `data/history/` snapshots
+
+9g — Tests
+- [ ] Synthetic boom-bust company: trough flagged, peak not; P/E10 and margin_position by hand
+- [ ] F-score and Altman Z against hand-computed fixtures; financials get N/A, not 0
+- [ ] Real fixtures: XOM (predecessor merge + energy cycle), a homebuilder, a semi
+- [ ] Warm-cache rerun makes 0 SEC calls; one bad history row doesn't fail the run
+
+## Phase 10 — Validation (outline; plan in detail after Phase 9)
+- [ ] Point-in-time panel from `filed` dates (no look-ahead), quarterly rebalance dates
+- [ ] Forward returns vs SPY, RSP (equal weight) and IWD (Russell 1000 Value), after costs
+- [ ] Measure each screen against a plain "cheapest earnings yield" baseline
+- [ ] Survivorship caveat: today's listings lack delisted names; flag results as optimistic
+      until a delisted-ticker source is added
+- [ ] Forward-track the weekly `data/history/` snapshots as a no-look-ahead test
 
 ## Known pitfalls
 - Inconsistent XBRL tags (Revenues vs RevenueFromContractWithCustomer...) -> fallback lists

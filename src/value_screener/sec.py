@@ -106,9 +106,11 @@ class SecClient:
         return self.get_json(SUBMISSIONS_URL.format(cik10=cik10(cik)),
                              f"submissions/CIK{cik10(cik)}", transform)
 
-    def company_facts(self, cik, transform=None):
+    def company_facts(self, cik, transform=None, variant: str | None = None):
+        """``variant`` names the transform's cache, so changing it never reuses stale slices."""
+        sub = f"facts/{variant}" if variant else "facts"
         return self.get_json(FACTS_URL.format(cik10=cik10(cik)),
-                             f"facts/CIK{cik10(cik)}", transform)
+                             f"{sub}/CIK{cik10(cik)}", transform)
 
 
 def client_from_settings(settings) -> SecClient:

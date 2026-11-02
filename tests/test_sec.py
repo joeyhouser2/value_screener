@@ -93,3 +93,10 @@ def test_local_settings_and_env_override(tmp_path, monkeypatch):
     assert load_settings(tmp_path / "settings.yaml").sec_user_agent == "Me me@example.com"
     monkeypatch.setenv("SEC_USER_AGENT", "Env env@example.com")
     assert load_settings(tmp_path / "settings.yaml").sec_user_agent == "Env env@example.com"
+
+
+def test_facts_variant_gets_its_own_cache(tmp_path):
+    c = _client(tmp_path, [_Resp(200, {"v": 1}), _Resp(200, {"v": 2})])
+    assert c.company_facts(1, variant="tA") == {"v": 1}
+    assert c.company_facts(1, variant="tB") == {"v": 2}      # new tag set -> refetch
+    assert c.company_facts(1, variant="tA") == {"v": 1} and c.calls == 2

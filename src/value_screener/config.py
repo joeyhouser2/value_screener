@@ -20,6 +20,7 @@ class Settings:
     cache_ttl_days: float = 7
     exchanges: tuple[str, ...] = ("NASDAQ", "NYSE")
     stale_months: int = 15
+    history_years: int = 15
     price_chunk: int = 200
     price_pause: float = 1.0
     yf_industry_fallback: bool = True

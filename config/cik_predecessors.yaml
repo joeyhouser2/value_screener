@@ -1,0 +1,11 @@
+# Successor CIK -> predecessor CIKs whose XBRL history should be merged in.
+#
+# A holding-company reorganization (or similar) creates a new SEC registrant that
+# takes over the ticker but starts with no financial history, so TTM values can't
+# be built until it has filed for a year. List the old registrant(s) here; their
+# facts are merged and the successor's filings win wherever periods overlap.
+#
+# Candidates show up in data/errors.csv as "short history" after a refresh.
+
+predecessors:
+  2115436: [34088]   # XOM: ExxonMobil Holdings Corp <- Exxon Mobil Corp (2026 reorganization)

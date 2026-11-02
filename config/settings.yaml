@@ -14,6 +14,7 @@ exchanges: [NASDAQ, NYSE]   # add "NYSE American" to include it
 
 # Fundamentals
 stale_months: 15            # flag fundamentals whose latest period is older than this
+history_years: 15           # fiscal years kept in data/fundamentals_history.parquet
 
 # Prices
 price_chunk: 200            # tickers per yfinance batch download

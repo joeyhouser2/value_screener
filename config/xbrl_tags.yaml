@@ -83,10 +83,92 @@ concepts:
     kind: instant
     unit: USD
     tags: [LongTermDebtCurrent, DebtCurrent, LongTermDebtAndCapitalLeaseObligationsCurrent]
+  # Last-resort total debt (homebuilders etc. tag only this); used only when no
+  # debt tag above has a value, since for some filers it's just one kind of debt.
+  notes_payable:
+    kind: instant
+    unit: USD
+    tags: [NotesPayable]
   short_term_borrowings:
     kind: instant
     unit: USD
     tags: [ShortTermBorrowings, CommercialPaper]
+  # --- Balance-sheet / income items for annual history (Phase 9: F-score, Altman Z,
+  # NCAV, interest coverage). Not used by the TTM screen.
+  gross_profit:
+    kind: flow
+    unit: USD
+    tags: [GrossProfit]
+  cost_of_revenue:        # gross profit = revenue - cost of revenue when GrossProfit is absent
+    kind: flow
+    unit: USD
+    tags:
+      - CostOfRevenue
+      - CostOfGoodsAndServicesSold
+      - CostOfGoodsSold
+      - CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization
+  # EBIT fallback (pretax income + interest) for the many filers without OperatingIncomeLoss.
+  pretax_income:
+    kind: flow
+    unit: USD
+    tags:
+      - IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest
+      - IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments
+  interest_expense:
+    kind: flow
+    unit: USD
+    tags:
+      - InterestExpense
+      - InterestExpenseNonoperating
+      - InterestExpenseDebt
+      - InterestAndDebtExpense
+      - InterestPaidNet
+  assets:
+    kind: instant
+    unit: USD
+    tags: [Assets]
+  assets_current:
+    kind: instant
+    unit: USD
+    tags: [AssetsCurrent]
+  liabilities:
+    kind: instant
+    unit: USD
+    tags: [Liabilities]
+  liabilities_and_equity:  # liabilities = this - equity incl. NCI when Liabilities is absent
+    kind: instant
+    unit: USD
+    tags: [LiabilitiesAndStockholdersEquity]
+  equity_incl_nci:
+    kind: instant
+    unit: USD
+    tags: [StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest]
+  liabilities_current:
+    kind: instant
+    unit: USD
+    tags: [LiabilitiesCurrent]
+  retained_earnings:
+    kind: instant
+    unit: USD
+    tags: [RetainedEarningsAccumulatedDeficit]
+  goodwill:
+    kind: instant
+    unit: USD
+    tags: [Goodwill]
+  intangibles:
+    kind: instant
+    unit: USD
+    tags:
+      - IntangibleAssetsNetExcludingGoodwill
+      - FiniteLivedIntangibleAssetsNet
+  # Period-average share count: never summed into a TTM; history only.
+  diluted_shares:
+    kind: average
+    unit: shares
+    tags:
+      - WeightedAverageNumberOfDilutedSharesOutstanding
+      - WeightedAverageNumberOfShareOutstandingBasicAndDiluted
+      - WeightedAverageNumberOfSharesOutstandingBasic
   # Shares: dei cover-page count first (summed across share classes), then us-gaap.
   shares_outstanding:
     kind: shares

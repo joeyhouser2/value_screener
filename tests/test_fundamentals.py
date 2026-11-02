@@ -132,3 +132,85 @@ def test_prior_year_found_on_52_53_week_calendar():
     v = f.flow_value(rows)
     assert v["val"] == 30 + 40 + 50 + 60
     assert v["prev"] == 1 + 1 + 10 + 20                # 4 quarters ending 2025-06-28
+
+
+# --- reorganizations: successor CIK with a predecessor ------------------------ #
+
+# Predecessor: full quarterly history through Q1 2026.
+OLD = _slim({"NetIncomeLoss": [
+    r("2025-04-01", "2025-06-30", 10, accn="o1"), r("2025-07-01", "2025-09-30", 20, accn="o2"),
+    r("2025-01-01", "2025-12-31", 100, form="10-K", accn="o3"),
+    r("2025-01-01", "2025-03-31", 30, accn="o0"), r("2026-01-01", "2026-03-31", 40, accn="o4"),
+]})
+# Successor: one 10-Q (Q2 2026 plus comparatives), restating Q2 2025 as 11.
+NEW = _slim({"NetIncomeLoss": [
+    r("2026-04-01", "2026-06-30", 50, filed="2026-08-05", accn="n1"),
+    r("2026-01-01", "2026-06-30", 90, filed="2026-08-05", accn="n1"),
+    r("2025-04-01", "2025-06-30", 11, filed="2026-08-05", accn="n1"),
+]})
+
+
+def test_successor_alone_has_short_history():
+    row = f.extract(NEW, TAGS, today=dt.date(2026, 10, 31))
+    assert row["net_income"] is None and row["short_history"] and row["stale"]
+
+
+def test_merged_predecessor_gives_ttm_and_successor_wins_overlaps():
+    merged = f.merge_slims([OLD, NEW])
+    row = f.extract(merged, TAGS, today=dt.date(2026, 10, 31))
+    # Q3'25 20 + Q4'25 (100-30-11-20 = 39, using the restated Q2 of 11) + Q1'26 40 + Q2'26 50
+    assert row["net_income"] == 20 + 39 + 40 + 50
+    assert row["net_income_end"] == pd.Timestamp("2026-06-30") and not row["short_history"]
+
+
+def test_load_predecessors_has_xom():
+    assert f.load_predecessors(CONFIG_DIR)[2115436] == [34088]
+
+
+def test_tags_fingerprint_changes_with_tags():
+    fp = f.tags_fingerprint(TAGS)
+    assert fp == f.tags_fingerprint(f.load_tags(CONFIG_DIR))
+    more = {**TAGS, "extra": {"kind": "flow", "unit": "USD", "tags": ["Extra"]}}
+    assert f.tags_fingerprint(more) != fp
+
+
+def test_average_concepts_ignored_by_ttm_extract():
+    slim = _slim({"WeightedAverageNumberOfDilutedSharesOutstanding": [
+        r("2025-01-01", "2025-03-31", 100), r("2025-04-01", "2025-06-30", 100)]})
+    assert "diluted_shares" not in f.extract(slim, TAGS)
+
+
+def test_notes_payable_only_when_no_other_debt_tag():
+    only_notes = _slim({"NotesPayable": [r(None, "2025-09-30", 60)]})
+    assert f.extract(only_notes, TAGS)["total_debt"] == 60
+    both = _slim({"NotesPayable": [r(None, "2025-09-30", 60)], "LongTermDebt": [r(None, "2025-06-30", 90)]})
+    assert f.extract(both, TAGS)["total_debt"] == 90
+
+
+class _FakeClient:
+    """company_facts from a dict of slims (None = 404); records the cache variant."""
+
+    def __init__(self, slims):
+        self.slims, self.variants = slims, set()
+
+    def company_facts(self, cik, transform=None, variant=None):
+        self.variants.add(variant)
+        return self.slims.get(int(cik))
+
+
+def test_refresh_parses_in_processes_and_logs_bad_tickers(tmp_path):
+    from value_screener import history
+    from value_screener.config import load_settings
+
+    s = load_settings(data_dir=tmp_path)
+    good = _slim({"Revenues": [r("2024-01-01", "2024-12-31", 90, form="10-K"),
+                               r("2025-01-01", "2025-12-31", 120, form="10-K")],
+                  "NetIncomeLoss": [r("2025-01-01", "2025-12-31", 12, form="10-K")]})
+    uni = pd.DataFrame({"ticker": ["GOOD", "GONE", "NOCIK"], "cik": [1, 2, None]})
+    client = _FakeClient({1: good, 2: None})
+    df = f.refresh(s, client, uni, verbose=False).set_index("ticker")
+    assert df.loc["GOOD", "revenue"] == 120 and pd.isna(df.loc["GONE", "revenue"])
+    assert client.variants == {f.tags_fingerprint(TAGS)}
+    h = history.load(s)
+    assert set(h["cik"]) == {1} and len(h[h["concept"] == "revenue"]) == 2
+    assert "GONE" in (tmp_path / "errors.csv").read_text(encoding="utf-8")
