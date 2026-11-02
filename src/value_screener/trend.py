@@ -71,11 +71,34 @@ def from_download(data: pd.DataFrame, batch: list[str], today: dt.date) -> pd.Da
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
+def download_batch(batch: list[str], start: dt.date, timeout: float) -> pd.DataFrame | None:
+    """Daily history for one batch, or None if it failed or stalled.
+
+    yfinance's own timeout didn't stop a stall of about two hours, so this is a hard limit.
+    Abandoning a batch can leave its threads running; if they disturb the next batch, that
+    only sends more tickers to the caller's retry."""
+    import yfinance as yf
+
+    box = []
+
+    def run():
+        try:
+            box.append(yf.download(batch, start=start.isoformat(), interval="1d", auto_adjust=False,
+                                   progress=False, threads=True, group_by="column"))
+        except Exception as exc:  # noqa: BLE001 - the retry pass picks these tickers up
+            print(f"Yahoo: batch {batch[0]}-{batch[-1]} failed: {exc}")
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        print(f"Yahoo: batch {batch[0]}-{batch[-1]} gave up after {timeout:.0f}s")
+    return box[0] if box else None
+
+
 class YahooTrend:
     """Failed tickers are retried, since Yahoo reports throttled ones as "possibly delisted"
-    (a whole batch at once, CVX and CSX included). yfinance's own timeout didn't stop a stall
-    of about two hours, so each batch also gets a hard limit. Abandoning a batch can leave its
-    threads running; if they disturb the next batch, that only sends more tickers to a retry."""
+    (a whole batch at once, CVX and CSX included)."""
 
     def __init__(self, chunk: int = 200, pause: float = 1.0, retries: int = 2,
                  retry_pause: float = 30.0, batch_timeout: float = 120.0):
@@ -87,23 +110,7 @@ class YahooTrend:
 
     def _batch(self, batch: list[str], start: dt.date, today: dt.date) -> pd.DataFrame:
         """One batch; empty if it failed or stalled."""
-        import yfinance as yf
-
-        box = []
-
-        def run():
-            try:
-                box.append(yf.download(batch, start=start.isoformat(), interval="1d", auto_adjust=False,
-                                       progress=False, threads=True, group_by="column"))
-            except Exception as exc:  # noqa: BLE001 - the retry pass picks these tickers up
-                print(f"Trend: batch {batch[0]}-{batch[-1]} failed: {exc}")
-
-        worker = threading.Thread(target=run, daemon=True)
-        worker.start()
-        worker.join(self.batch_timeout)
-        if worker.is_alive():
-            print(f"Trend: batch {batch[0]}-{batch[-1]} gave up after {self.batch_timeout:.0f}s")
-        return from_download(box[0] if box else None, batch, today)
+        return from_download(download_batch(batch, start, self.batch_timeout), batch, today)
 
     def trend(self, tickers: list[str]) -> pd.DataFrame:
         today = dt.date.today()

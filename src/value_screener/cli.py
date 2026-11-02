@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import errors, fundamentals, history, industry, prices, screens, sec, trend, universe, valuation
+from . import errors, fundamentals, history, industry, prices, screens, sec, track, trend, universe, valuation
 from .config import REPO_ROOT, load_settings
 
 LABEL_ALIASES = {"undervalued": "Undervalued", "fair": "Fair", "overvalued": "Overvalued",
@@ -112,6 +112,23 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_track(args) -> int:
+    s = load_settings()
+    out = track.refresh(s)
+    if out.empty:
+        print("Nothing to track yet: no snapshot has the screen columns. Run `value-screener refresh`.")
+        return 0
+    show = out.copy()
+    for c in ("ret", "ret_if_gone_lost", *track.BENCHMARKS, "excess_vs_spy"):
+        show[c] = show[c].map(lambda v: f"{v:+.1%}" if pd.notna(v) else "")
+    show["days"] = show["days"].map(lambda v: f"{v:.0f}" if pd.notna(v) else "not bought yet")
+    print(show.to_string(index=False))
+    print("\nEqual weight and before costs, each cohort held since its first close after the snapshot.")
+    if not (out["days"] >= 365).any():
+        print("Under a year of results: this is a record being kept, not evidence of anything.")
+    return 0
+
+
 COVERAGE_METRICS = ["market_cap", "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo"]
 
 
@@ -159,7 +176,10 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--csv", help="Also write the full screen as CSV here.")
     ex.set_defaults(func=cmd_export)
 
-    cv = sub.add_parser("coverage", help="Percent of stocks with each metric, by industry.")
+    tr = sub.add_parser("track", help="Record the screens' cohorts and their returns since.")
+    tr.set_defaults(func=cmd_track)
+
+    cv = sub.add_parser("coverage",help="Percent of stocks with each metric, by industry.")
     cv.set_defaults(func=cmd_coverage)
     return p
 

@@ -26,6 +26,8 @@ class Settings:
     trend_retries: int = 2
     trend_retry_pause: float = 30.0
     trend_batch_timeout: float = 120.0
+    track_cohort_days: int = 91
+    track_baseline_pct: float = 0.10
     yf_industry_fallback: bool = True
     min_peers: int = 8
     undervalued_pct: float = 0.20

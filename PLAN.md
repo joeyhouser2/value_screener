@@ -221,9 +221,15 @@ What a feasibility check found (Nov 2026, on the real cache):
   over 120 days for 4-8% of companies at the dates sampled, and is missing for 3-17%
 
 10a — Forward tracking (first: it costs little, and every week not recorded is lost)
-- [ ] `value-screener track`: each snapshot's screens, returns since, vs SPY, RSP, IWD
-- [ ] Exclude snapshots from before Phase 9 (no screen columns); weekly job runs it
+- [x] `value-screener track`: a cohort every 91 days, returns since, vs SPY, RSP, IWD. Members
+      are frozen on first sight; stocks Yahoo stops pricing keep their last return, flagged
+      `gone`, with a second figure counting them as total losses
+- [x] Cheapest 10% by earnings yield tracked too, as its losers can't be recovered later
+- [x] Snapshots from before Phase 9 (no screen columns) excluded; weekly script runs it
+      First cohort: 2026-11-02 (108 deep value, 79 trough, 231 baseline), bought at the next close
       The only test free of look-ahead and survivorship, but it needs years to mean anything
+      Known gaps: returns are before costs. Record lives only in `data/`, which isn't in git.
+      The baseline is deliberately naive, so it includes P/Es under 1 that are one-offs or bad data
 
 10b — Point-in-time panel (`backtest/`, resumable, one cached Parquet per date)
 - [ ] `as_of(slim, date)` and a replay of the existing pipeline code, not a second copy of it
