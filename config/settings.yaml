@@ -37,6 +37,7 @@ quality_max_de_pct: 0.80    # debt/equity must be under this industry percentile
 # Through-the-cycle metrics
 normalized_window: 10       # fiscal years averaged
 normalized_min_years: 5     # fewer years of data -> normalized metric is missing
+pe10_min_years: 3           # P/E10 for young companies from this many; shown but not peer-ranked
 cyclical_margin_vol: 0.10   # margin std dev (10 points) that marks a company cyclical
 
 # Survival checks

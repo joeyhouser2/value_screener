@@ -75,6 +75,7 @@ concepts:
       - LongTermDebt
       - DebtAndCapitalLeaseObligations
       - LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities
+      - DebtLongtermAndShorttermCombinedAmount
   debt_noncurrent:
     kind: instant
     unit: USD
@@ -93,6 +94,56 @@ concepts:
     kind: instant
     unit: USD
     tags: [ShortTermBorrowings, CommercialPaper]
+  # Pieces of debt, summed when the tags above have nothing recent (ORCL, DLR, BABA). The
+  # whole debt = noncurrent + current, or the "any" pieces if those add to more.
+  debt_parts_noncurrent:
+    kind: parts
+    unit: USD
+    tags:
+      - LongTermNotesAndLoans
+      - LongTermNotesPayable
+      - LongTermLoansPayable
+      - SeniorLongTermNotes
+      - ConvertibleDebtNoncurrent
+      - ConvertibleLongTermNotesPayable
+      - SecuredLongTermDebt
+      - UnsecuredLongTermDebt
+      - LongTermLoansFromBank
+      - OtherLongTermDebtNoncurrent
+      - OtherLoansPayableLongTerm
+      - NotesPayableToBankNoncurrent
+  debt_parts_current:
+    kind: parts
+    unit: USD
+    tags:
+      - NotesPayableCurrent
+      - ConvertibleDebtCurrent
+      - ConvertibleNotesPayableCurrent
+      - LoansPayableCurrent
+      - SecuredDebtCurrent
+      - UnsecuredDebtCurrent
+      - SeniorNotesCurrent
+      - OtherLoansPayableCurrent
+      - OtherNotesPayableCurrent
+      - ShortTermBankLoansAndNotesPayable
+      - OtherShortTermBorrowings
+      - ShortTermBorrowings
+      - CommercialPaper
+  debt_parts_any:
+    kind: parts
+    unit: USD
+    tags:
+      - LoansPayable
+      - SeniorNotes
+      - ConvertibleDebt
+      - ConvertibleNotesPayable
+      - SecuredDebt
+      - UnsecuredDebt
+      - SubordinatedDebt
+      - OtherLongTermDebt
+      - OtherNotesPayable
+      - OtherBorrowings
+      - NotesPayable
   # --- Balance-sheet / income items for annual history (Phase 9: F-score, Altman Z,
   # NCAV, interest coverage). Gross profit and cost of revenue are history only.
   gross_profit:

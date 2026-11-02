@@ -31,6 +31,7 @@ class Settings:
     quality_max_de_pct: float = 0.80
     normalized_window: int = 10
     normalized_min_years: int = 5
+    pe10_min_years: int = 3
     cyclical_margin_vol: float = 0.10
     min_interest_coverage: float = 2.0
     altman_z_distress: float = 1.81

@@ -127,3 +127,27 @@ def test_volatile_bank_margins_do_not_make_it_cyclical(tmp_path):
     out = n.add_normalized(_screen([{"ticker": "B", "cik": 1, "special": "bank",
                                      "industry_group": "Banks"}]), wavy, s)
     assert not out["cyclical"].iloc[0]
+
+
+def test_young_company_gets_pe10_from_three_years_when_allowed():
+    assert np.isnan(n.company_metrics(_hist([10.0] * 2), pe_min_years=3)["norm_earnings"])
+    m = n.company_metrics(_hist([10.0, 20.0, 30.0]), pe_min_years=3)
+    assert m["norm_earnings"] == 20 and m["years_history"] == 3
+    assert np.isnan(m["margin_position"])        # margins still need the full minimum
+
+
+def test_short_pe10_is_shown_but_not_peer_ranked():
+    s = load_settings()
+    rows, hist = [], []
+    for cik in range(1, 12):
+        years = 3 if cik == 11 else 10
+        rows.append(dict(cik=float(cik), ticker=f"T{cik}", special=None, market_cap=100.0 * cik,
+                         enterprise_value=100.0 * cik, revenue=100.0, ebit=10.0,
+                         industry_group="Software & IT Services", sector="Technology"))
+        for i, end in enumerate(pd.date_range(end="2025-12-31", periods=years, freq="YE")):
+            hist += [dict(cik=cik, fy_end=end, concept="net_income", val=10.0),
+                     dict(cik=cik, fy_end=end, concept="revenue", val=100.0)]
+    out = n.add_normalized(pd.DataFrame(rows), pd.DataFrame(hist), s).set_index("ticker")
+    assert out.loc["T11", "pe10"] == pytest.approx(110) and out.loc["T11", "years_history"] == 3
+    assert np.isnan(out.loc["T11", "pe10_pct"])
+    assert out.loc["T1", "pe10_pct"] == 0 and out.loc["T10", "pe10_pct"] == 1

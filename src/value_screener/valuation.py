@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import normalized, survival
+from . import fundamentals, normalized, survival
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -38,6 +38,8 @@ METRIC_SETS = {
     None: ["pe", "ev_ebitda", "ps", "fcf_yield"],
 }
 MAX_FLOW_LAG_DAYS = 120     # about one missed quarterly filing
+ASSUMED_DEBT_RATE = 0.06    # turns an interest bill into the debt it roughly implies
+MATERIAL_DEBT_SHARE = 0.05  # implied debt this share of market cap is too big to ignore
 ALL_SCORED = sorted({m for ms in METRIC_SETS.values() for m in ms})
 LABELS = ("Undervalued", "Fair", "Overvalued", "Insufficient data")
 
@@ -60,7 +62,18 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
         return num(c).where(~(lag > pd.Timedelta(days=MAX_FLOW_LAG_DAYS)))
 
     mcap, ni, rev, eq = num("market_cap"), num("net_income"), num("revenue"), num("equity")
-    debt, cash = num("total_debt").fillna(0.0), num("cash").fillna(0.0)
+    # An abandoned debt tag says nothing about today (ORCL: $0 from 2022). Debt is taken as
+    # repaid unless the interest bill says otherwise; then it's unknown, not low.
+    df["debt_unknown"] = False
+    debt = num("total_debt")
+    if {"total_debt_end", "as_of"} <= set(df.columns):
+        lag = pd.to_datetime(df["as_of"]) - pd.to_datetime(df["total_debt_end"])
+        abandoned = lag > pd.Timedelta(days=fundamentals.MAX_DEBT_LAG_DAYS)
+        implied = current("interest_expense") / ASSUMED_DEBT_RATE
+        df["debt_unknown"] = abandoned & (implied >= MATERIAL_DEBT_SHARE * mcap)
+        debt = debt.mask(abandoned, 0.0).mask(df["debt_unknown"])
+    df["total_debt"] = debt
+    debt, cash = debt.fillna(0.0), num("cash").fillna(0.0)
     # An old D&A only approximates; dropping it would cost REITs their P/FFO and label.
     da, oi = num("d_and_a"), current("operating_income")
     ocf, capex = num("operating_cash_flow"), num("capex").fillna(0.0)
@@ -69,7 +82,7 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["pe"] = mcap / _pos(ni)
     df["ps"] = mcap / _pos(rev)
     df["pb"] = mcap / _pos(eq)
-    df["enterprise_value"] = mcap + debt - cash
+    df["enterprise_value"] = (mcap + debt - cash).where(~df["debt_unknown"])
     # Many filers (XOM, DHI) never tag operating income: pretax + interest stands in.
     df["ebit"] = oi.fillna(current("pretax_income") + current("interest_expense").fillna(0.0))
     df["ebitda"] = df["ebit"] + da
@@ -88,7 +101,7 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["graham_number"] = np.sqrt(22.5 * _pos(eps) * _pos(bvps))
     df["price_to_graham"] = price / df["graham_number"]
     df["roe"] = ni / _pos(eq)
-    df["debt_to_equity"] = debt / _pos(eq)
+    df["debt_to_equity"] = debt.where(~df["debt_unknown"]) / _pos(eq)
     return df
 
 
@@ -141,6 +154,7 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
         "loss-making": ~(df["net_income"] > 0),
         "negative FCF": ~financial & ~(df["fcf"] > 0),
         "high debt": de_pct >= settings.quality_max_de_pct,
+        "debt unknown": ~financial & df["debt_unknown"],
         "ROE <= 0": ~(df["roe"] > 0),
     }
     fails = pd.DataFrame(checks).fillna(False).astype(bool)
@@ -169,7 +183,7 @@ SCREEN_COLUMNS = [
     "margin_position", "industry_cycle_position", "cyclical", "median_margin", "margin_vol",
     "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
     "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
-    "interest_coverage", "net_cash", "coverage_ok", "tangible_book", "p_tbv", "p_tbv_pct",
+    "interest_coverage", "net_cash", "coverage_ok", "debt_unknown", "tangible_book", "p_tbv", "p_tbv_pct",
     "ncav", "p_ncav",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",

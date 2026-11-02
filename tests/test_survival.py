@@ -139,11 +139,10 @@ def test_interest_coverage_and_net_cash():
     assert pd.isna(_run(_row(special="bank", cash=500.0)).iloc[0]["coverage_ok"])
 
 
-def test_abandoned_debt_tag_is_not_net_cash():
+def test_unknown_debt_is_not_net_cash():
     r = _run(_row(cash=300.0, total_debt=200.0)).iloc[0]
     assert r["net_cash"]
-    old = pd.Timestamp("2021-12-31")
-    assert not _run(_row(cash=300.0, total_debt=200.0, total_debt_end=old)).iloc[0]["net_cash"]
+    assert not _run(_row(cash=300.0, total_debt=np.nan, debt_unknown=True)).iloc[0]["net_cash"]
     # No debt tag at all: nothing reported, so net cash stands.
     assert _run(_row(cash=300.0, total_debt=np.nan, total_debt_end=pd.NaT)).iloc[0]["net_cash"]
 

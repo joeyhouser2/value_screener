@@ -101,6 +101,8 @@ def with_market_cap(closes: pd.DataFrame, fundamentals_df: pd.DataFrame,
     f = fundamentals_df.set_index("ticker")
     col = lambda c: df["ticker"].map(f[c]) if c in f else pd.Series(index=df.index, dtype=float)
     df = closes.copy()
+    # Closes joined onto an empty frame come back as objects until a parquet round trip.
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
     df["shares_outstanding"] = col("shares_outstanding")
     df["market_cap"] = df["price"] * df["shares_outstanding"]
     df["market_cap_src"] = "sec_shares"

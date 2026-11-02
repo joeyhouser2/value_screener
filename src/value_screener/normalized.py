@@ -8,6 +8,9 @@ metrics judge a company on its last ``normalized_window`` fiscal years instead:
   10-K are never restated for later splits (AAPL FY2011 $27.68, FY2012 $6.31).
   This equals price / mean split-adjusted EPS, so a company that diluted while earnings
   stayed flat looks cheaper than its current EPS justifies: read it with ``share_cagr``.
+  Averages the years available, down to ``pe10_min_years`` for young companies: check
+  ``years_history``, as 3 years rarely span a cycle. Only ``normalized_min_years`` or more
+  count for ``pe10_pct``, so a short average never moves a long-history peer's rank.
 - ``ev_midcycle_ebit``: EV / (median EBIT margin x TTM revenue)
 - ``norm_fcf_yield``: mean free cash flow / market cap
 - ``margin_position``: percentile of the current margin within the company's own
@@ -77,7 +80,7 @@ def _ebit(g: pd.DataFrame, special) -> pd.Series:
 
 
 def company_metrics(g: pd.DataFrame, *, special=None, current_margin: float = np.nan,
-                    window: int = 10, min_years: int = 5) -> dict:
+                    window: int = 10, min_years: int = 5, pe_min_years: int | None = None) -> dict:
     """Normalized figures for one company's fiscal years (``g`` as from ``history.wide``)."""
     g = g.sort_values("fy_end").tail(window)
     col = lambda c: g[c] if c in g else pd.Series(np.nan, index=g.index)
@@ -88,7 +91,7 @@ def company_metrics(g: pd.DataFrame, *, special=None, current_margin: float = np
 
     shares = col("diluted_shares").to_numpy(dtype=float)
     idx = share_index(shares) if (shares > 0).any() else np.ones(len(g))
-    if out["years_history"] >= min_years:
+    if out["years_history"] >= (pe_min_years or min_years):
         out["norm_earnings"] = float((ni.to_numpy(dtype=float) / idx)[ni.notna()].mean())
     if len(g) >= 2 and idx[0] > 0:
         out["share_cagr"] = float((1 / idx[0]) ** (1 / (len(g) - 1)) - 1)
@@ -119,7 +122,8 @@ def company_table(history_df: pd.DataFrame, df: pd.DataFrame, settings: Settings
     for cik, g in history.wide(history_df).groupby("cik"):
         rows.append({"cik": cik, **company_metrics(
             g, special=special.get(cik), current_margin=current.get(cik, np.nan),
-            window=settings.normalized_window, min_years=settings.normalized_min_years)})
+            window=settings.normalized_window, min_years=settings.normalized_min_years,
+            pe_min_years=settings.pe10_min_years)})
     return pd.DataFrame(rows, columns=["cik", *COMPANY_COLUMNS])
 
 
@@ -140,7 +144,8 @@ def add_normalized(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: 
     df["ev_midcycle_ebit"] = pos(df["enterprise_value"]) / pos(df["midcycle_ebit"])
     df["norm_fcf_yield"] = df["norm_fcf"] / pos(df["market_cap"])
     for m, lower in PEER_METRICS.items():
-        df[f"{m}_pct"], _ = valuation._peer_pct(df, df[m], lower, settings.min_peers)
+        ranked = df[m].where(df["years_history"] >= settings.normalized_min_years) if m == "pe10" else df[m]
+        df[f"{m}_pct"], _ = valuation._peer_pct(df, ranked, lower, settings.min_peers)
 
     groups = industry.load_groups(settings.config_dir)["groups"]
     cyclical_groups = {r["group"] for r in groups if r.get("cyclical")}

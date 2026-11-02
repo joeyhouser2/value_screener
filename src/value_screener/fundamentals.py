@@ -40,6 +40,10 @@ ROW_FIELDS = ("revenue", "net_income", "operating_income", "pretax_income", "int
               "retained_earnings", "goodwill", "intangibles")
 # Concepts the TTM row needs; the rest of xbrl_tags.yaml is for annual history only
 # (and TTM construction is the slow part, so don't build what nobody reads).
+PARTS_CONCEPTS = ("debt_parts_noncurrent", "debt_parts_current", "debt_parts_any")
+MAX_DEBT_LAG_DAYS = 400     # an annual-only debt tag is fine; older means it was abandoned
+MAX_PARTS_LAG_DAYS = 120
+MAX_IMPLIED_RATE = 0.25     # interest / debt above this means some of the debt isn't tagged
 TTM_CONCEPTS = frozenset(ROW_FIELDS) | {"debt_total", "debt_noncurrent", "debt_current",
                                         "notes_payable", "short_term_borrowings"}
 
@@ -201,6 +205,36 @@ def shares_value(rows) -> dict:
     return {"val": total, "src": "instant", "end": last_end}
 
 
+def _parts_at(slim: dict, spec: dict | None) -> list[tuple[pd.Timestamp, float]]:
+    """(period end, value) of the latest row of each tag in a ``parts`` concept."""
+    found = [instant_value(slim["tags"][t]) for t in (spec or {}).get("tags", []) if slim["tags"].get(t)]
+    return [(v["end"], v["val"]) for v in found if v["end"] is not None]
+
+
+def debt_from_parts(slim: dict, tags_cfg: dict, row: dict, as_of: pd.Timestamp) -> tuple | None:
+    """(debt, period end) summed from the latest balance sheet's debt pieces, or None.
+
+    Only some pieces may be tagged (DE's secured debt is $6B of a much larger total), so a
+    sum that can't carry the interest bill, or exceeds total liabilities, is rejected.
+    """
+    groups = [_parts_at(slim, tags_cfg.get(k)) for k in PARTS_CONCEPTS]
+    ends = [e for g in groups for e, _ in g if abs((as_of - e).days) <= MAX_PARTS_LAG_DAYS]
+    if not ends:
+        return None
+    end = max(ends)
+    noncurrent, current, other = (sum(v for e, v in g if e == end) for g in groups)
+    debt = max(noncurrent + current, other)
+    liabilities = row.get("liabilities") or row.get("liabilities_and_equity")
+    if liabilities and debt > liabilities:
+        return None
+    interest, interest_end = row.get("interest_expense"), row.get("interest_expense_end")
+    if interest and interest > 0 and interest_end is not None \
+            and abs((as_of - interest_end).days) <= MAX_PARTS_LAG_DAYS \
+            and interest > MAX_IMPLIED_RATE * debt:
+        return None
+    return debt, end
+
+
 # --- per company -------------------------------------------------------------- #
 
 def _best(slim: dict, spec: dict, reader) -> tuple[dict, str | None]:
@@ -252,11 +286,17 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
         debt += stb["val"]
     elif debt is None and stb["val"] is not None:
         debt, debt_end = stb["val"], stb["end"]
-    row["total_debt"], row["total_debt_end"] = debt, debt_end
 
     ends = [row[f"{k}_end"] for k in FLOW_FIELDS_FOR_ASOF if row[f"{k}_end"] is not None]
     as_of = max(ends) if ends else None
     row["as_of"] = as_of
+    row["total_debt_src"] = None if debt is None else "tag"
+    if as_of is not None and (debt_end is None or (as_of - debt_end).days > MAX_DEBT_LAG_DAYS):
+        parts = debt_from_parts(slim, tags_cfg, row, as_of)
+        if parts:
+            debt, debt_end = parts
+            row["total_debt_src"] = "parts"
+    row["total_debt"], row["total_debt_end"] = debt, debt_end
     today = pd.Timestamp(today or dt.date.today())
     row["stale"] = as_of is None or as_of < today - pd.DateOffset(months=stale_months)
 

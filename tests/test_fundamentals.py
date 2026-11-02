@@ -233,3 +233,55 @@ def test_amended_filings_still_count():
 def test_registration_statements_still_count():
     rows = [r("2025-01-01", "2025-12-31", 70, filed="2026-03-01", form="S-1")]
     assert f.flow_value(rows)["val"] == 70
+
+
+def _debt_slim(**tags):
+    income = [r("2025-07-01", "2026-06-30", 100, form="10-K")]
+    return _slim({"Revenues": income, **{k: v for k, v in tags.items()}})
+
+
+def _inst(end, val):
+    return [None, end, val, end, "10-Q", "a"]
+
+
+def test_debt_pieces_summed_when_the_main_tags_are_abandoned():
+    # ORCL: long-term debt tagged 0 years ago; today's debt is in other tags.
+    slim = _debt_slim(LongTermDebt=[_inst("2021-06-30", 0)],
+                      LongTermNotesAndLoans=[_inst("2026-06-30", 1000)],
+                      NotesPayableCurrent=[_inst("2026-06-30", 80), _inst("2025-06-30", 999)])
+    row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
+    assert row["total_debt"] == 1080 and row["total_debt_src"] == "parts"
+    assert row["total_debt_end"] == pd.Timestamp("2026-06-30")
+
+
+def test_debt_pieces_ignored_when_a_main_tag_is_recent():
+    slim = _debt_slim(LongTermDebt=[_inst("2025-12-31", 500)],
+                      LongTermNotesAndLoans=[_inst("2026-06-30", 1000)])
+    row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
+    assert row["total_debt"] == 500 and row["total_debt_src"] == "tag"
+
+
+def test_overlapping_piece_tags_are_not_double_counted():
+    slim = _debt_slim(SeniorLongTermNotes=[_inst("2026-06-30", 700)],
+                      SeniorNotes=[_inst("2026-06-30", 700)])
+    assert f.extract(slim, TAGS, today=dt.date(2026, 10, 31))["total_debt"] == 700
+
+
+def test_pieces_too_small_for_the_interest_bill_are_rejected():
+    # DE: $6B of secured debt against $2.9B of interest is clearly not the whole.
+    interest = [r("2025-07-01", "2026-06-30", 48, form="10-K")]
+    slim = _debt_slim(LongTermDebt=[_inst("2021-06-30", 300)], SecuredDebt=[_inst("2026-06-30", 100)],
+                      InterestExpense=interest)
+    row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
+    assert row["total_debt"] == 300 and row["total_debt_end"] == pd.Timestamp("2021-06-30")
+
+
+def test_pieces_above_total_liabilities_are_rejected():
+    slim = _debt_slim(SeniorNotes=[_inst("2026-06-30", 700)], SecuredDebt=[_inst("2026-06-30", 700)],
+                      Liabilities=[_inst("2026-06-30", 1000)])
+    assert f.extract(slim, TAGS, today=dt.date(2026, 10, 31))["total_debt"] is None
+
+
+def test_combined_debt_tag_counts():
+    slim = _debt_slim(DebtLongtermAndShorttermCombinedAmount=[_inst("2026-06-30", 900)])
+    assert f.extract(slim, TAGS, today=dt.date(2026, 10, 31))["total_debt"] == 900

@@ -177,10 +177,8 @@ def add_survival(df: pd.DataFrame, history_df: pd.DataFrame | None, settings: Se
     financial = special.isin(normalized.FINANCIALS)
     interest = near("interest_expense", as_of, valuation.MAX_FLOW_LAG_DAYS)
     df["interest_coverage"] = (num("ebit") / pos(interest)).where(~financial)
-    debt_end, cash_end = date("total_debt_end"), date("cash_end")
-    # A debt tag abandoned long ago hides today's debt; no debt tag at all means none reported.
-    debt_known = debt_end.isna() | ((as_of - debt_end) <= pd.Timedelta(days=MAX_BALANCE_LAG_DAYS))
-    cash_known = (as_of - cash_end) <= pd.Timedelta(days=MAX_BALANCE_LAG_DAYS)
+    cash_known = (as_of - date("cash_end")) <= pd.Timedelta(days=MAX_BALANCE_LAG_DAYS)
+    debt_known = ~df["debt_unknown"].astype(bool) if "debt_unknown" in df else True
     df["net_cash"] = (num("cash") > num("total_debt").fillna(0.0)) & debt_known & cash_known & ~financial
     ok = pd.Series(pd.NA, index=df.index, dtype="boolean")
     judged = df["interest_coverage"].notna()

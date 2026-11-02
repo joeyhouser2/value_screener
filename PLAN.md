@@ -130,9 +130,17 @@ lens and two new screens; the existing `label` column is unchanged.
       finance arms (F) distort Altman and coverage; many microcap ADRs show P/NCAV near 0
       (UPC 0.0002), which looks like bad data; debt-free filers often lose the leverage test
       (no tag), so raw F-scores read low.
-- [ ] Stale / missing debt: 839 live companies have a debt tag > 400 days old, and EV and
-      debt/equity still use it (ORCL shows 0 from 2022, DE $32B from 2022, F ends 2020).
-      Find the missing tags (needs one cold refetch), then treat what's left as unknown
+- [x] Stale / missing debt: 839 live companies had a debt tag > 400 days old feeding EV and
+      debt/equity (ORCL $0 from 2022). Added a combined-debt tag and summed debt pieces (394
+      companies), rejected when they exceed liabilities or imply > 25% interest. Still
+      abandoned: repaid unless the interest bill implies debt >= 5% of market cap, then
+      `debt_unknown` (about 174, incl. DE, F, KKR): no EV, fails quality unless financial.
+      Known gaps: the history doesn't use debt pieces, so the F-score leverage test can be
+      N/A; pieces can overstate (MTH $2.4B against $2.5B liabilities, not yet checked).
+- [x] First-of-day runs crashed since 9b: fresh closes stayed object dtype until a parquet
+      round trip. Fixed in `with_market_cap`, with a regression test and a real replay.
+- [x] P/E10 from 3+ years for young companies (`pe10_min_years`), not peer-ranked: 2,270 have it.
+      Short-history names aren't all young: BLK and FERG may need predecessor CIKs (unconfirmed).
 
 9d — Price trend (for the "is it turning?" check; yfinance, cached)
 - [ ] 1-year daily history per ticker in the existing batched download: % off 52w high,
