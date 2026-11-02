@@ -13,6 +13,7 @@ here can never touch market caps or labels. Results are cached per day, like clo
 from __future__ import annotations
 
 import datetime as dt
+import threading
 import time
 from typing import Protocol
 
@@ -71,23 +72,60 @@ def from_download(data: pd.DataFrame, batch: list[str], today: dt.date) -> pd.Da
 
 
 class YahooTrend:
-    def __init__(self, chunk: int = 200, pause: float = 1.0):
+    """Failed tickers are retried, since Yahoo reports throttled ones as "possibly delisted"
+    (a whole batch at once, CVX and CSX included). yfinance's own timeout didn't stop a stall
+    of about two hours, so each batch also gets a hard limit. Abandoning a batch can leave its
+    threads running; if they disturb the next batch, that only sends more tickers to a retry."""
+
+    def __init__(self, chunk: int = 200, pause: float = 1.0, retries: int = 2,
+                 retry_pause: float = 30.0, batch_timeout: float = 120.0):
         self.chunk = chunk
         self.pause = pause
+        self.retries = retries
+        self.retry_pause = retry_pause
+        self.batch_timeout = batch_timeout
 
-    def trend(self, tickers: list[str]) -> pd.DataFrame:
+    def _batch(self, batch: list[str], start: dt.date, today: dt.date) -> pd.DataFrame:
+        """One batch; empty if it failed or stalled."""
         import yfinance as yf
 
+        box = []
+
+        def run():
+            try:
+                box.append(yf.download(batch, start=start.isoformat(), interval="1d", auto_adjust=False,
+                                       progress=False, threads=True, group_by="column"))
+            except Exception as exc:  # noqa: BLE001 - the retry pass picks these tickers up
+                print(f"Trend: batch {batch[0]}-{batch[-1]} failed: {exc}")
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(self.batch_timeout)
+        if worker.is_alive():
+            print(f"Trend: batch {batch[0]}-{batch[-1]} gave up after {self.batch_timeout:.0f}s")
+        return from_download(box[0] if box else None, batch, today)
+
+    def trend(self, tickers: list[str]) -> pd.DataFrame:
         today = dt.date.today()
         start = today - dt.timedelta(days=LOOKBACK_DAYS)
-        out = []
-        for i in range(0, len(tickers), self.chunk):
-            batch = tickers[i:i + self.chunk]
-            data = yf.download(batch, start=start.isoformat(), interval="1d", auto_adjust=False,
-                               progress=False, threads=True, group_by="column")
-            out.append(from_download(data, batch, today))
-            if self.pause and i + self.chunk < len(tickers):
-                time.sleep(self.pause)
+        out, todo = [], list(tickers)
+        for attempt in range(self.retries + 1):
+            if attempt:
+                time.sleep(self.retry_pause)
+            began, slowest, got = time.monotonic(), 0.0, set()
+            for i in range(0, len(todo), self.chunk):
+                batch_began = time.monotonic()
+                frame = self._batch(todo[i:i + self.chunk], start, today)
+                slowest = max(slowest, time.monotonic() - batch_began)
+                out.append(frame)
+                got |= set(frame["ticker"])
+                if self.pause and i + self.chunk < len(todo):
+                    time.sleep(self.pause)
+            print(f"Trend pass {attempt + 1}: {len(got)}/{len(todo)} tickers in "
+                  f"{time.monotonic() - began:.0f}s, slowest batch {slowest:.0f}s")
+            todo = [t for t in todo if t not in got]
+            if not todo:
+                break
         return pd.concat(out, ignore_index=True) if out else pd.DataFrame(columns=COLUMNS)
 
 
@@ -112,9 +150,12 @@ def cached_trend(settings: Settings, tickers: list[str], source: TrendSource,
 
 def refresh(settings: Settings, universe_df: pd.DataFrame, source: TrendSource | None = None,
             *, verbose: bool = True) -> pd.DataFrame:
-    source = source or YahooTrend(settings.price_chunk, settings.price_pause)
+    source = source or YahooTrend(settings.price_chunk, settings.price_pause, settings.trend_retries,
+                                  settings.trend_retry_pause, settings.trend_batch_timeout)
     try:
         df = cached_trend(settings, universe_df["ticker"].tolist(), source)
+        for t in sorted(set(universe_df["ticker"]) - set(df["ticker"])):
+            errors.log(settings.data_dir, "trend", t, "no recent price data from Yahoo")
     except Exception as exc:  # noqa: BLE001 - context only, so the run carries on without it
         errors.log(settings.data_dir, "trend", "*", exc)
         df = _numeric(pd.DataFrame(columns=COLUMNS))

@@ -147,22 +147,31 @@ lens and two new screens; the existing `label` column is unchanged.
       failure can't touch market caps or labels: % off 52w high, 12-1 month momentum (total
       return), price vs 200-day average; cached per day in `data/cache/prices/`
 - [x] Shown as context only, never required to pass a screen
-      Known gaps: a run during market hours takes the live price as today's close (also true
+- [x] Failed tickers retried, each batch limited to 2 minutes, and tickers still without
+      trend logged to `errors.csv`: Yahoo stalled for about two hours and dropped 241 tickers
+      as "possibly delisted" (CVX, CSX), with nothing logged
+      Known gaps: the closes download in `prices.py` has no such limit; a run during market hours takes the live price as today's close (also true
       of the screen's price); momentum on serial reverse-splitters depends on Yahoo's adjustment
 
 9e — New screens (columns `deep_value`, `cyclical_trough`, plus `*_reasons`)
-- [ ] Deep value: (P/TBV in industry's cheapest 20% OR P/NCAV < 1 OR EV/sales cheapest 20%)
-      AND F-score >= 6 AND survival checks. P/NCAV needs a floor and a minimum market cap
-      (155 of 243 names were under $25M, some with impossible values)
-- [ ] Cyclical trough: cyclical AND years_history >= 7 AND margin_position <= 0.33
-      AND P/E10 or EV/mid-cycle EBIT in industry's cheapest 30% AND survival checks
-- [ ] Survival checks: `coverage_ok` not False AND not (Altman distress without coverage_ok).
+- [x] Deep value: (P/TBV in industry's cheapest 20% OR P/NCAV 0.1-1 OR EV/sales cheapest 20%)
+      AND P/TBV <= 3 AND F-score >= 6 AND survival checks. The P/TBV ceiling is new: EV/sales
+      alone passed thin-margin names (MCK, CAH), and it isn't deep value to be the cheapest
+      of an expensive industry
+- [x] Cyclical trough: cyclical AND years_history >= 7 AND margin_position <= 0.33
+      AND P/E10 or EV/mid-cycle EBIT in industry's cheapest 30% AND F-score >= 4 (lower, as
+      the F-score rewards the rising margins a trough lacks) AND survival checks
+- [x] Survival checks: `coverage_ok` not False AND not (Altman distress without coverage_ok).
       Not a plain Altman gate: Z'' puts 203 large profitable companies in distress (LOW, HCA,
       NOW), since it ignores market value and punishes buybacks and deferred revenue.
-      Compare F-score to `f_score_n`, as a score of 6 of 7 differs from 6 of 9
-- [ ] Dilution guard: serial diluters fail both screens on `share_cagr` (P/E10 flatters them)
-- [ ] `turning` hint: revenue YoY improving or price above 200-day (informational)
-- [ ] All thresholds in `config/settings.yaml`; financials excluded from Altman / NCAV
+      F-score scaled to `f_score_n` (at least 6 tests), market cap >= $50M, debt known
+- [x] Dilution guard: serial diluters fail both screens on `share_cagr` > 5% a year
+- [x] `turning` hint: revenue up YoY AND price above 200-day (informational). Both, as either
+      alone is true of 67% of the market. Blank when missing data could still decide it
+- [x] All thresholds in `config/settings.yaml`; financials excluded from Altman / NCAV
+      Known gaps: nothing separates a cyclical low from permanent decline (BIIB passes), and
+      a one-off charge can make a company look cyclical. Thresholds are judgment calls until
+      Phase 10 tests them
 
 9f — CLI, export, dashboard
 - [ ] `screen --label deep-value | cyclical-trough`; export adds one sheet per new screen

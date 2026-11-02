@@ -34,7 +34,8 @@ from . import history, normalized, valuation
 from .config import Settings
 
 NO_ALTMAN = (*normalized.FINANCIALS, "reit")
-CLIENT_FUND_GROUPS = ("Capital Markets",)   # brokers and exchanges: balance sheet is client money
+# Brokers, exchanges and insurance brokers: much of the balance sheet is client money.
+CLIENT_FUND_GROUPS = ("Capital Markets", "Insurance Brokers")
 MANUFACTURING_SIC = (2000, 3999)
 FY_GAP_DAYS = (335, 395)        # consecutive fiscal years, 52/53-week calendars included
 MAX_FY_LAG_DAYS = 400           # latest FY older than this before the latest period -> no score

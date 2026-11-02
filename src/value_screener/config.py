@@ -23,6 +23,9 @@ class Settings:
     history_years: int = 15
     price_chunk: int = 200
     price_pause: float = 1.0
+    trend_retries: int = 2
+    trend_retry_pause: float = 30.0
+    trend_batch_timeout: float = 120.0
     yf_industry_fallback: bool = True
     min_peers: int = 8
     undervalued_pct: float = 0.20
@@ -38,6 +41,17 @@ class Settings:
     altman_z_safe: float = 2.99
     altman_z2_distress: float = 1.10
     altman_z2_safe: float = 2.60
+    screen_min_market_cap: float = 50e6
+    screen_min_f_tests: int = 6
+    max_share_cagr: float = 0.05
+    deep_value_pct: float = 0.20
+    deep_value_min_f: float = 6
+    deep_value_max_p_tbv: float = 3.0
+    min_p_ncav: float = 0.1
+    trough_min_years: int = 7
+    trough_max_margin_position: float = 0.33
+    trough_pct: float = 0.30
+    trough_min_f: float = 4
     data_dir: Path = field(default=REPO_ROOT / "data")
     config_dir: Path = field(default=CONFIG_DIR)
 

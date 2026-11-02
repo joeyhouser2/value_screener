@@ -1,10 +1,13 @@
 """Phase 9d — price trend from synthetic closes. Fake source, no network."""
 
 import datetime as dt
+import threading
+import time
 
 import numpy as np
 import pandas as pd
 import pytest
+import yfinance
 
 from value_screener import errors, trend, valuation
 from value_screener.config import Settings
@@ -128,6 +131,74 @@ def test_failure_is_logged_and_the_run_continues(tmp_path):
     out = trend.refresh(s, pd.DataFrame({"ticker": ["AAA"]}), _Broken(), verbose=False)
     assert out.empty and trend.path(s).exists()
     assert "Yahoo is down" in errors.errors_path(tmp_path).read_text(encoding="utf-8")
+
+
+class _Partial(_Fake):
+    def trend(self, tickers):
+        return super().trend([t for t in tickers if t != "BAD"])
+
+
+def test_tickers_without_trend_are_logged(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    out = trend.refresh(s, pd.DataFrame({"ticker": ["AAA", "BAD"]}), _Partial(), verbose=False)
+    assert out["ticker"].tolist() == ["AAA"]
+    log = errors.errors_path(tmp_path).read_text(encoding="utf-8")
+    assert "trend,BAD,no recent price data" in log and ",AAA," not in log
+
+
+def _recent(*tickers):
+    """A download frame ending today, which is what YahooTrend measures staleness against."""
+    close = pd.DataFrame({t: [1.0, 2.0] for t in tickers}, index=pd.bdate_range(end=dt.date.today(), periods=2))
+    return pd.concat({"Adj Close": close, "Close": close}, axis=1)
+
+
+def _yahoo(monkeypatch, responses):
+    """yfinance.download returning each of ``responses`` in turn; records the tickers asked for."""
+    asked, queue = [], iter(responses)
+
+    def download(batch, **kwargs):
+        asked.append(list(batch))
+        out = next(queue)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    monkeypatch.setattr(yfinance, "download", download)
+    return asked
+
+
+def test_failed_tickers_are_retried(monkeypatch):
+    asked = _yahoo(monkeypatch, [_recent("AAA"), _recent("BBB")])
+    out = trend.YahooTrend(chunk=2, pause=0, retries=2, retry_pause=0).trend(["AAA", "BBB"])
+    assert asked == [["AAA", "BBB"], ["BBB"]] and set(out["ticker"]) == {"AAA", "BBB"}
+
+
+def test_retries_are_limited(monkeypatch):
+    asked = _yahoo(monkeypatch, [pd.DataFrame()] * 3)
+    out = trend.YahooTrend(chunk=2, pause=0, retries=2, retry_pause=0).trend(["AAA"])
+    assert len(asked) == 3 and out.empty
+
+
+def test_a_batch_that_raises_does_not_lose_the_others(monkeypatch):
+    _yahoo(monkeypatch, [RuntimeError("boom"), _recent("BBB"), _recent("AAA")])
+    out = trend.YahooTrend(chunk=1, pause=0, retries=1, retry_pause=0).trend(["AAA", "BBB"])
+    assert set(out["ticker"]) == {"AAA", "BBB"}
+
+
+def test_a_stalled_batch_is_abandoned(monkeypatch):
+    release = threading.Event()
+
+    def stall(batch, **kwargs):
+        if batch == ["AAA"]:
+            release.wait(30)
+            return pd.DataFrame()
+        return _recent("BBB")
+
+    monkeypatch.setattr(yfinance, "download", stall)
+    began = time.monotonic()
+    out = trend.YahooTrend(chunk=1, pause=0, retries=0, batch_timeout=0.1).trend(["AAA", "BBB"])
+    release.set()
+    assert time.monotonic() - began < 5 and out["ticker"].tolist() == ["BBB"]
 
 
 def _screen(trend_df):

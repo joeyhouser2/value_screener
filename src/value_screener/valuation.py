@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import fundamentals, normalized, survival
+from . import fundamentals, normalized, screens, survival
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -184,7 +184,8 @@ SCREEN_COLUMNS = [
     "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
     "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
     "interest_coverage", "net_cash", "coverage_ok", "debt_unknown", "tangible_book", "p_tbv", "p_tbv_pct",
-    "ncav", "p_ncav", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date",
+    "ncav", "p_ncav", "enterprise_value", "ev_sales", "ev_sales_pct", "deep_value", "deep_value_reasons",
+    "cyclical_trough", "cyclical_trough_reasons", "turning", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]
@@ -203,6 +204,7 @@ def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
     df = survival.add_survival(df, history_df, settings)
     if trend_df is not None and len(trend_df):
         df = df.merge(trend_df, on="ticker", how="left")
+    df = screens.add_screens(df, settings)
     order = {lab: i for i, lab in enumerate(LABELS)}
     df = df.sort_values(["label", "composite_pct"], key=lambda s: s.map(order) if s.name == "label" else s)
     return df.reindex(columns=SCREEN_COLUMNS).reset_index(drop=True)
