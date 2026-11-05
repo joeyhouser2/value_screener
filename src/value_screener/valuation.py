@@ -160,7 +160,7 @@ SCREEN_COLUMNS = [
     "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
     "interest_coverage", "net_cash", "coverage_ok", "debt_unknown", "tangible_book", "p_tbv", "p_tbv_pct",
     "ncav", "p_ncav", "enterprise_value", "ev_sales", "ev_sales_pct", "deep_value", "deep_value_reasons",
-    "cyclical_trough", "cyclical_trough_reasons", "turning", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date",
+    "cyclical_trough", "cyclical_trough_reasons", "turning", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date", "spin_off_date",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]

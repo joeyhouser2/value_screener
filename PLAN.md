@@ -232,18 +232,39 @@ What a feasibility check found (Nov 2026, on the real cache):
       The baseline is deliberately naive, so it includes P/Es under 1 that are one-offs or bad data
 
 10b — Point-in-time panel (`backtest/`, resumable, one cached Parquet per date)
-- [ ] `as_of(slim, date)` and a replay of the existing pipeline code, not a second copy of it
-- [ ] Fix the MU bug first (stale flows treated as missing), which also protects live runs
-- [ ] Price history: daily Close, Adj Close, Volume and split events per ticker, cached; the
+- [x] `as_of(slim, date)` and a replay of the existing pipeline code, not a second copy of it
+- [x] Fix the MU bug first (stale flows treated as missing), which also protects live runs
+      Tags are stitched first, but about 207 live companies were estimated to lose revenue
+- [x] Price history: daily Close, Adj Close, Volume and split events per ticker, cached; the
       batch time limit and retries from `trend.py`
-- [ ] Past market cap = shares known then x that day's unadjusted close. Yahoo's Close is
+- [x] Past market cap = shares known then x that day's unadjusted close. Yahoo's Close is
       split-adjusted, so undo later splits. Today's Nasdaq and Yahoo cap fallbacks have no
       history: compare against live caps and report how many companies this gets wrong
-- [ ] Key on CIK; drop price history from before a reused ticker's first filing
-- [ ] Gate: replay at today's date must closely reproduce today's `screen.parquet`. Report
+      Cover-page scale slips (x1000) are scaled back; net income / EPS fills only a missing or
+      stale count, never one changed by a split; a count under half of it is blank (one class
+      only); a cap over 1000x revenue and equity is blank. Yahoo's spin-offs (CTVA 6.665) are
+      not splits for the share count. Apple June 2014 $560B, Microsoft $344B; BKNG, APH, TPL,
+      TSCO match live
+      US-form filers: 3,426 of 3,675 caps within 5%, 79 off by over 50%, 355 lost. Of $1B+ live
+      caps, 1,847 of 2,059 are within 5%, 128 lost (mostly Nasdaq-sourced: multi-class, V, BRK,
+      CMCSA, HEI, ABNB), 23 wrong (Up-C class A only, recent IPOs, ADS filers ONC, ZLAB)
+- [x] Key on CIK; drop price history from before a reused ticker's first filing
+- [x] Gate: replay at today's date must closely reproduce today's `screen.parquet`. Report
       the match rate, and don't go on until differences are understood
-- [ ] Test on hand-built slims that a figure filed one day after the date is not visible
-      Known gaps: SIC codes and `ticker_overrides` are today's, not those of the past
+      Replay with live prices and caps: 100.0% of labels, fields and screen members, on 5,148
+      tickers. The 201 not replayed have no fundamentals, all "Insufficient data"
+      With past caps, US-form filers (Nov 3 2026): labels 90.1%. Of 414 label differences, 266
+      are a cap lost or gained, 22 a cap off by over 5%, 126 names near a cutoff whose peers lost
+      caps. Deep value keeps 83 of 90 live names (CTVA by the spin-off check, 6 lost caps) and
+      adds 15, all peer shifts (P/TBV percentile 0.2-0.36 live, under 0.2 replayed); trough
+      keeps 69 of 73 (3 lost caps, AOS a peer shift) and adds 6, all peer shifts
+      Effect on a backtest: names without a past cap are left out, and the cheapest-fifth
+      cutoffs run slightly looser than live
+- [x] Test on hand-built slims that a figure filed one day after the date is not visible
+      Known gaps: SIC codes and `ticker_overrides` are today's, not those of the past. 20-F and
+      40-F filers get no past cap, nor do companies whose filings miss a class or an ADS ratio.
+      A spin-off since the last balance sheet now fails both screens, live and replayed. The
+      price cache's Nov 3 2026 bar is intraday, and the cache is never refetched
 
 10c — Survivorship: measure the hole before trusting anything inside it
 - [ ] From EDGAR's free quarterly form indexes, count 10-K filers per year missing from

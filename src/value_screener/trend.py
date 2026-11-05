@@ -24,11 +24,29 @@ from . import errors
 from .config import Settings
 
 METRICS = ["off_52w_high", "momentum_12_1", "price_vs_200d"]
-COLUMNS = ["ticker", *METRICS, "trend_date"]
+COLUMNS = ["ticker", *METRICS, "trend_date", "spin_off_date"]
 LOOKBACK_DAYS = 400         # 12-1 momentum needs a price from just over a year ago
 START_TOL = pd.Timedelta(days=7)    # listed about 12 months ago still counts as 12 months
 MAX_AGE_DAYS = 10           # no close this recent: halted or delisted, so no trend
 SMA_DAYS = 200
+MAX_STOCK_DIVIDEND = 1.10
+
+
+def changes_share_count(ratio: float) -> bool:
+    """Whether a Yahoo "split" really multiplied the shares, or was a spin-off priced as one.
+
+    Yahoo adjusts prices for spin-offs and lists them as splits with an odd ratio (Corteva 6.665,
+    Middleby 1.243). So only a round ratio or a small stock dividend counts."""
+    round_ratio = lambda x: abs(x * 4 - round(x * 4)) < 0.002 or abs(x * 3 - round(x * 3)) < 0.002
+    return 1 <= ratio <= MAX_STOCK_DIVIDEND or round_ratio(ratio) or round_ratio(1 / ratio)
+
+
+def last_spin_off(splits: pd.Series | None) -> dt.date | None:
+    """The date of the latest "split" that :func:`changes_share_count` rejects."""
+    if splits is None:
+        return None
+    hit = [day for day, ratio in splits.dropna().items() if ratio > 0 and not changes_share_count(ratio)]
+    return max(hit).date() if hit else None
 
 
 class TrendSource(Protocol):
@@ -61,17 +79,19 @@ def from_download(data: pd.DataFrame, batch: list[str], today: dt.date) -> pd.Da
     frame = lambda s: s.to_frame(batch[0]) if isinstance(s, pd.Series) else s
     close = frame(data["Close"])
     adj = frame(data["Adj Close"]) if "Adj Close" in data else close
+    splits = frame(data["Stock Splits"]) if "Stock Splits" in data else pd.DataFrame()
     cutoff = pd.Timestamp(today) - pd.Timedelta(days=MAX_AGE_DAYS)
     rows = []
     for t in close.columns:
         s = close[t].dropna()
         if not s.empty and s.index[-1] >= cutoff and (s > 0).all():
             rows.append({"ticker": t, **series_metrics(s, adj[t] if t in adj else None),
-                         "trend_date": s.index[-1].date()})
+                         "trend_date": s.index[-1].date(),
+                         "spin_off_date": last_spin_off(splits[t] if t in splits else None)})
     return pd.DataFrame(rows, columns=COLUMNS)
 
 
-def download_batch(batch: list[str], start: dt.date, timeout: float) -> pd.DataFrame | None:
+def download_batch(batch: list[str], start: dt.date, timeout: float, actions: bool = False) -> pd.DataFrame | None:
     """Daily history for one batch, or None if it failed or stalled.
 
     yfinance's own timeout didn't stop a stall of about two hours, so this is a hard limit.
@@ -84,7 +104,7 @@ def download_batch(batch: list[str], start: dt.date, timeout: float) -> pd.DataF
     def run():
         try:
             box.append(yf.download(batch, start=start.isoformat(), interval="1d", auto_adjust=False,
-                                   progress=False, threads=True, group_by="column"))
+                                   progress=False, threads=True, group_by="column", actions=actions))
         except Exception as exc:  # noqa: BLE001 - the retry pass picks these tickers up
             print(f"Yahoo: batch {batch[0]}-{batch[-1]} failed: {exc}")
 
@@ -110,7 +130,7 @@ class YahooTrend:
 
     def _batch(self, batch: list[str], start: dt.date, today: dt.date) -> pd.DataFrame:
         """One batch; empty if it failed or stalled."""
-        return from_download(download_batch(batch, start, self.batch_timeout), batch, today)
+        return from_download(download_batch(batch, start, self.batch_timeout, actions=True), batch, today)
 
     def trend(self, tickers: list[str]) -> pd.DataFrame:
         today = dt.date.today()

@@ -86,6 +86,16 @@ def test_download_frame_parsed_per_ticker():
     assert out.loc["AAA", "trend_date"] == TODAY
 
 
+def test_download_records_the_latest_spin_off_but_not_real_splits():
+    data = _download(AAA=[1.0, 2.0, 3.0], BBB=[1.0, 2.0, 3.0], CCC=[1.0, 2.0, 3.0])
+    idx = data.index
+    splits = pd.DataFrame({"AAA": [1.243, 0.0, 6.665], "BBB": [0.0, 2.0, 0.0]}, index=idx).assign(CCC=np.nan)
+    out = trend.from_download(pd.concat([data, pd.concat({"Stock Splits": splits}, axis=1)], axis=1), ["AAA", "BBB", "CCC"], TODAY)
+    got = out.set_index("ticker")["spin_off_date"]
+    assert got["AAA"] == idx[2].date()
+    assert pd.isna(got["BBB"]) and pd.isna(got["CCC"])
+
+
 def test_single_ticker_download_and_empty_download():
     data = pd.DataFrame({"Close": [1.0, 2.0]}, index=pd.bdate_range(end="2026-10-30", periods=2))
     assert trend.from_download(data, ["AAA"], TODAY)["ticker"].tolist() == ["AAA"]

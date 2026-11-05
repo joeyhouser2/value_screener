@@ -27,6 +27,11 @@ trend_batch_timeout: 120.0  # give up on a batch after this; a normal one takes 
 track_cohort_days: 91       # start a new tracked cohort this often
 track_baseline_pct: 0.10    # cheapest share by earnings yield, tracked as the dumb alternative
 
+# Backtest
+backtest_start: "2012-01-01"  # first point-in-time screen; XBRL thins out before this
+past_cap_min_eps: 0.50      # net income / EPS stands in for shares only at or above this EPS
+past_cap_max_multiple: 1000 # a past cap over this x the larger of revenue and equity is bad data
+
 # Industry fallback for tickers without an SEC SIC code (mostly foreign filers).
 yf_industry_fallback: true
 

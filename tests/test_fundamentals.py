@@ -285,3 +285,32 @@ def test_pieces_above_total_liabilities_are_rejected():
 def test_combined_debt_tag_counts():
     slim = _debt_slim(DebtLongtermAndShorttermCombinedAmount=[_inst("2026-06-30", 900)])
     assert f.extract(slim, TAGS, today=dt.date(2026, 10, 31))["total_debt"] == 900
+
+
+# Revenue moved to a new tag in mid-2026, so neither tag alone has four straight quarters.
+OLD_TAG = [r("2025-01-01", "2025-03-31", 10), r("2025-04-01", "2025-06-30", 10), r("2025-07-01", "2025-09-30", 10),
+           r("2025-01-01", "2025-12-31", 40, form="10-K"), r("2026-01-01", "2026-03-31", 11)]
+NEW_TAG = [r("2026-04-01", "2026-06-30", 12), r("2026-07-01", "2026-09-30", 13)]
+EARNINGS = [r("2025-10-01", "2025-12-31", 1), r("2026-01-01", "2026-03-31", 1),
+            r("2026-04-01", "2026-06-30", 1), r("2026-07-01", "2026-09-30", 1)]
+
+
+def test_revenue_is_stitched_across_a_tag_switch():
+    slim = _slim({"Revenues": OLD_TAG, "RevenueFromContractWithCustomerExcludingAssessedTax": NEW_TAG,
+                  "NetIncomeLoss": EARNINGS})
+    row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
+    # Q4 2025 = 40 - 30; then 11, 12, 13 from the two tags.
+    assert row["revenue"] == 46 and row["revenue_end"] == pd.Timestamp("2026-09-30")
+
+
+def test_the_newer_tag_wins_a_period_both_report():
+    slim = {"tags": {"Old": OLD_TAG, "New": [*NEW_TAG, r("2026-01-01", "2026-03-31", 99)]}}
+    rows = f._pooled_rows(slim, {"tags": ["Old", "New"]})
+    assert [x[2] for x in rows if x[1] == "2026-03-31"] == [99]
+
+
+def test_revenue_abandoned_long_ago_is_missing_not_old():
+    slim = _slim({"Revenues": [r("2017-01-01", "2017-12-31", 500, form="10-K")], "NetIncomeLoss": EARNINGS})
+    row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
+    assert row["revenue"] is None and row["revenue_prev"] is None and row["revenue_end"] is None
+    assert row["net_income"] == 4 and row["as_of"] == pd.Timestamp("2026-09-30") and not row["stale"]

@@ -22,6 +22,8 @@ Checks shared by both:
 - Interest coverage not failed. An Altman distress score counts only when coverage doesn't
   clear the company, since Z'' also flags healthy names (see :mod:`survival`).
 - Debt known, and no serial dilution: ``share_cagr`` flatters P/E10 otherwise.
+- No spin-off since the latest balance sheet, which would set the lower price against figures
+  that still include the business spun off (Corteva, October 2026).
 """
 
 from __future__ import annotations
@@ -68,8 +70,10 @@ def add_screens(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     f_of_full = f * FULL_F_TESTS / tests.where(tests > 0)
     too_few = ~(tests >= settings.screen_min_f_tests)
     usable = (~flag("stale")) & mcap.notna() & (mcap >= settings.screen_min_market_cap)
+    date = lambda c: pd.to_datetime(df[c], errors="coerce") if c in df else pd.Series(pd.NaT, index=df.index)
     survive = {
         "too small or stale": ~usable,
+        "spin-off since last balance sheet": date("spin_off_date") > date("equity_end"),
         "too few F-score tests": too_few,
         "interest coverage": coverage.fillna(False).astype(bool).eq(False) & coverage.notna(),
         "Altman distress": (zone == "distress") & ~coverage.fillna(False).astype(bool),

@@ -57,6 +57,15 @@ def test_f_score_is_scaled_to_the_tests_that_ran():
     assert not _one(f_score=3.0, f_score_n=6.0)["deep_value"]      # 4.5 of 9
 
 
+def test_a_spin_off_since_the_last_balance_sheet_fails_both_screens():
+    spun = _one(spin_off_date=dt.date(2026, 10, 1), equity_end=pd.Timestamp("2026-06-30"))
+    assert not spun["deep_value"] and not spun["cyclical_trough"]
+    assert "failed: spin-off since last balance sheet" in spun["deep_value_reasons"]
+    reported = _one(spin_off_date=dt.date(2026, 10, 1), equity_end=pd.Timestamp("2026-12-31"))
+    assert reported["deep_value"] and reported["cyclical_trough"]
+    assert _one(spin_off_date=None, equity_end=pd.Timestamp("2026-06-30"))["deep_value"]
+
+
 def test_trough_has_the_lower_f_bar():
     r = _one(f_score=4.0)
     assert r["cyclical_trough"] and not r["deep_value"]

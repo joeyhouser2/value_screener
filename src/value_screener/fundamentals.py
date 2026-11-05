@@ -251,6 +251,31 @@ def _best(slim: dict, spec: dict, reader) -> tuple[dict, str | None]:
     return best, best_tag
 
 
+def _pooled_rows(slim: dict, spec: dict) -> list:
+    """Rows of all a concept's tags, the most recently used tag winning any shared period."""
+    rows = {tag: [r for r in slim["tags"].get(tag) or [] if PROXY_FORM not in (r[4] or "")]
+            for tag in spec["tags"]}
+    seen, out = set(), []
+    for tag in sorted(rows, key=lambda t: max((r[1] or "" for r in rows[t]), default=""), reverse=True):
+        out += [r for r in rows[tag] if (r[0], r[1]) not in seen]
+        seen |= {(r[0], r[1]) for r in rows[tag]}
+    return out
+
+
+def _stitch_lagging(slim: dict, tags_cfg: dict, vals: dict) -> None:
+    """Rebuild revenue or earnings across tags when one tag can't reach the latest period.
+
+    A filer switching tags mid-year leaves no tag with four straight quarters (CMI, PEP, and MU
+    in June 2019, whose $30.4B from FY2018 sat beside trough earnings)."""
+    ends = [vals[k]["end"] for k in FLOW_FIELDS_FOR_ASOF if vals[k]["end"] is not None]
+    for key in FLOW_FIELDS_FOR_ASOF:
+        end = vals[key]["end"]
+        if ends and end is not None and (max(ends) - end).days > MAX_FLOW_LAG_DAYS:
+            v = flow_value(_pooled_rows(slim, tags_cfg[key]))
+            if v["end"] is not None and v["end"] > end:
+                vals[key] = v
+
+
 def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
             stale_months: int = 15) -> dict:
     """One row of fundamentals from a slimmed companyfacts payload."""
@@ -260,6 +285,7 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
     for key in TTM_CONCEPTS:
         spec = tags_cfg.get(key)
         vals[key] = _best(slim, spec, readers[spec["kind"]])[0] if spec else dict(empty)
+    _stitch_lagging(slim, tags_cfg, vals)
 
     row: dict = {"entity": slim.get("entity"),
                  "us_gaap": "us-gaap" in (slim.get("taxonomies") or [])}
@@ -291,6 +317,11 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
     ends = [row[f"{k}_end"] for k in FLOW_FIELDS_FOR_ASOF if row[f"{k}_end"] is not None]
     as_of = max(ends) if ends else None
     row["as_of"] = as_of
+    # Still behind after stitching: treated as missing, as an old figure beside current
+    # earnings misstates every ratio built on it. ``as_of`` still says what was filed.
+    for key in FLOW_FIELDS_FOR_ASOF:
+        if row[f"{key}_end"] is not None and (as_of - row[f"{key}_end"]).days > MAX_FLOW_LAG_DAYS:
+            row[key] = row[f"{key}_src"] = row[f"{key}_end"] = row[f"{key}_prev"] = None
     row["total_debt_src"] = None if debt is None else "tag"
     if as_of is not None and (debt_end is None or (as_of - debt_end).days > MAX_DEBT_LAG_DAYS):
         parts = debt_from_parts(slim, tags_cfg, row, as_of)
@@ -315,8 +346,8 @@ SHORT_HISTORY_MSG = ("short history: recent filings but no 12-month figures yet 
                      "(new registrant? add its old CIK to config/cik_predecessors.yaml)")
 
 
-def parse_company(slims: list[dict], tags_cfg: dict, stale_months: int,
-                  history_years: int) -> tuple[dict, pd.DataFrame | None, list[tuple[str, str]]]:
+def parse_company(slims: list[dict], tags_cfg: dict, stale_months: int, history_years: int,
+                  today: dt.date | None = None) -> tuple[dict, pd.DataFrame | None, list[tuple[str, str]]]:
     """Process-pool worker: (TTM row, annual history, [(stage, message)] to log).
 
     ``slims`` is predecessors first, the company itself last. Parsing is CPU-bound
@@ -324,7 +355,7 @@ def parse_company(slims: list[dict], tags_cfg: dict, stale_months: int,
     one shared rate limiter.
     """
     slim = merge_slims(slims) if len(slims) > 1 else slims[0]
-    row = extract(slim, tags_cfg, stale_months=stale_months)
+    row = extract(slim, tags_cfg, today=today, stale_months=stale_months)
     msgs = [("fundamentals", SHORT_HISTORY_MSG)] if row["short_history"] else []
     try:
         hist = history.company_history(slim, tags_cfg, max_years=history_years)

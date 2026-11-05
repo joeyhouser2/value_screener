@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import errors, fundamentals, history, industry, prices, screens, sec, track, trend, universe, valuation
+from .backtest import panel
 from .config import REPO_ROOT, load_settings
 
 LABEL_ALIASES = {"undervalued": "Undervalued", "fair": "Fair", "overvalued": "Overvalued",
@@ -129,6 +130,35 @@ def cmd_track(args) -> int:
     return 0
 
 
+def cmd_panel(args) -> int:
+    s = load_settings()
+    dates = [dt.date.fromisoformat(d) for d in args.dates] if args.dates \
+        else panel.quarter_ends(s.backtest_start, dt.date.today())
+    panel.build(s, dates)
+    return 0
+
+
+def _print_gate(name: str, r: dict) -> None:
+    print(f"\n{name}: {r['common']} tickers in both, {len(r['live_not_replayed'])} live only")
+    print(f"  Market caps: {r['caps_close']}/{r['caps_compared']} within {panel.CAP_CLOSE:.0%}, "
+          f"{len(r['caps_wrong'])} off by over {panel.CAP_WRONG:.0%}, "
+          f"{r['caps_lost']} lost, {r['caps_gained']} gained")
+    print(f"  Labels match: {r['label_match']:.1%}")
+    print("  Fields match: " + ", ".join(f"{k} {v:.1%}" for k, v in r["fields"].items()))
+    for c in screens.SCREENS.values():
+        o = r[c]
+        print(f"  {c}: live {o['live']}, replay {o['replay']}, both {o['both']}; "
+              f"live only {o['live_only'][:15]}; replay only {o['replay_only'][:15]}")
+    print(f"  Most wrong caps: {r['caps_wrong'].head(15).round(1).to_dict()}")
+
+
+def cmd_panel_gate(args) -> int:
+    same, full = panel.gate(load_settings(), dt.date.fromisoformat(args.date) if args.date else None)
+    _print_gate("Replay with live prices and caps", same)
+    _print_gate("Replay with past-date prices and caps", full)
+    return 0
+
+
 COVERAGE_METRICS = ["market_cap", "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo"]
 
 
@@ -178,6 +208,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     tr = sub.add_parser("track", help="Record the screens' cohorts and their returns since.")
     tr.set_defaults(func=cmd_track)
+
+    pa = sub.add_parser("panel", help="Build point-in-time screens, one file per date; rerun to resume.")
+    pa.add_argument("--dates", nargs="+", help="YYYY-MM-DD dates (default: every quarter end).")
+    pa.set_defaults(func=cmd_panel)
+
+    pg = sub.add_parser("panel-gate", help="Check that a replay reproduces the live screen.")
+    pg.add_argument("--date", help="YYYY-MM-DD (default: the live screen's price date).")
+    pg.set_defaults(func=cmd_panel_gate)
 
     cv = sub.add_parser("coverage",help="Percent of stocks with each metric, by industry.")
     cv.set_defaults(func=cmd_coverage)

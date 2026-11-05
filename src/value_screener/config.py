@@ -28,6 +28,9 @@ class Settings:
     trend_batch_timeout: float = 120.0
     track_cohort_days: int = 91
     track_baseline_pct: float = 0.10
+    backtest_start: str = "2012-01-01"
+    past_cap_min_eps: float = 0.50
+    past_cap_max_multiple: float = 1000.0
     yf_industry_fallback: bool = True
     min_peers: int = 8
     undervalued_pct: float = 0.20
