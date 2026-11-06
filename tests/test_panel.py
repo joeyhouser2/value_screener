@@ -104,6 +104,23 @@ def test_share_count_after_the_split_is_not_multiplied_again():
     assert caps.loc[0, "market_cap"] == 100_000
 
 
+def test_a_count_filed_after_the_split_is_restated_whatever_its_date():
+    # Alphabet: its June 30, 2022 count was filed after July's 20-for-1, already restated.
+    df = _prices(close=25.0, splits={"2019-06-10": 4.0})
+    fund = pd.DataFrame({"ticker": ["AAA"], "shares_outstanding": [4_000.0],
+                         "shares_outstanding_end": [pd.Timestamp("2019-05-31")],
+                         "shares_outstanding_filed": [pd.Timestamp("2019-06-20")]})
+    july = dt.date(2019, 7, 15)
+    caps = panel.past_market_caps(panel.past_closes({"AAA": df}, july), fund, {"AAA": df}, Settings(), july)
+    assert caps.loc[0, "market_cap"] == 100_000
+
+
+def test_the_filing_date_of_the_share_count_is_kept():
+    shares = [r(None, "2019-05-31", 400, "2019-06-20"), r(None, "2019-05-31", 100, "2019-06-20")]
+    got = f.shares_value(shares)
+    assert got["val"] == 500 and got["filed"] == pd.Timestamp("2019-06-20")
+
+
 def test_a_spin_off_restates_the_price_but_not_the_share_count():
     # Yahoo lists Corteva's October 2026 spin-off as a 6.665 "split".
     df = _prices(close=12.0, splits={"2019-06-10": 6.665})
@@ -158,6 +175,8 @@ def test_a_count_scaled_a_thousand_or_a_million_times_too_big_is_scaled_back(fil
     scale = 1_000 if filed < 1e6 else 1_000_000
     # Works on a small EPS too: Fortinet's was $0.24.
     assert _cap(_fund(shares_outstanding=filed, net_income=10.0, eps_diluted=0.10)) == pytest.approx(filed / scale * 10)
+    # Boyd 2012: $0.08 on a different income line put net income / EPS 1.6x off the count.
+    assert _cap(_fund(shares_outstanding=filed, net_income=16.0, eps_diluted=0.10)) == pytest.approx(filed / scale * 10)
 
 
 def test_a_fresh_count_under_half_of_net_income_over_eps_gives_no_cap():

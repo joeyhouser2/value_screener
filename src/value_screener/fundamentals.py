@@ -203,7 +203,7 @@ def shares_value(rows) -> dict:
     latest = df[df["end"] == last_end]
     latest = latest[latest["accn"] == latest.sort_values("filed")["accn"].iloc[-1]]
     total = float(latest.drop_duplicates()["val"].sum())
-    return {"val": total, "src": "instant", "end": last_end}
+    return {"val": total, "src": "instant", "end": last_end, "filed": latest["filed"].max()}
 
 
 def _parts_at(slim: dict, spec: dict | None) -> list[tuple[pd.Timestamp, float]]:
@@ -294,6 +294,8 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
         row[key] = v["val"]
         row[f"{key}_src"] = v["src"]
         row[f"{key}_end"] = v["end"]
+    # A count filed after a split is already restated for it, whatever date it is as of.
+    row["shares_outstanding_filed"] = vals["shares_outstanding"].get("filed")
     row["net_income_prev"] = vals["net_income"].get("prev")
     row["revenue_prev"] = vals["revenue"].get("prev")
 

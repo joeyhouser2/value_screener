@@ -9,7 +9,8 @@ the next close.
   So a reused ticker's older prices never meet the new company's figures. Companies that have
   since delisted are missing altogether, which is Phase 10c's subject.
 - Market cap: shares known then x that day's printed close, with any split since the share
-  count's date applied to the shares. Today's Nasdaq and Yahoo cap fallbacks have no history,
+  count was filed applied to the shares. Not since its as-of date: a count filed after a
+  split is restated for it (Alphabet's June 2022 count, filed after July's 20-for-1). Today's Nasdaq and Yahoo cap fallbacks have no history,
   so what they would have corrected goes wrong or missing here: :func:`gate` counts it.
   :func:`past_shares` stands in for them where it can, from what was filed by the date:
 
@@ -18,7 +19,8 @@ the next close.
     mixes periods around a merger or a split, so it is unused for 15 months after a split,
     and rounding swamps it when EPS is small.
   - A count about 1,000 or 1,000,000 times that figure is a scaling slip on the cover page
-    (Fortinet 2014, Alcoa 2019), so it is scaled back.
+    (Fortinet 2014, Alcoa 2019), so it is scaled back. "About" is within 3x, as a small EPS
+    is rounded and may be on a different income line (Boyd 2012: $0.08).
   - A fresh count under half that figure may be one class of several (HEI), which would make
     the stock look cheap, so that cap is left blank.
   - A cap over ``past_cap_max_multiple`` x the larger of revenue and equity is left blank:
@@ -51,7 +53,7 @@ GATE_FIELDS = ("pe", "p_tbv", "ev_sales", "pe10", "margin_position", "f_score", 
 GATE_FIELD_TOL = 0.02
 ANNUAL_FORMS = {"10-K", "10-KT", "20-F", "40-F"}
 FOREIGN_FORMS = {"20-F", "40-F"}
-SCALE_SLIP_TOL = 1.5        # how near a power of 1,000 a count's excess must be to count as a slip
+SCALE_SLIP_TOL = 3.0       # how near a power of 1,000 a count's excess must be to count as a slip
 MAX_SHARE_SHORTFALL = 2.0   # a fresh count this far under net income / EPS may be one class of several
 
 
@@ -127,8 +129,11 @@ def past_shares(fund: pd.DataFrame, frames: dict[str, pd.DataFrame], settings: S
     fund = fund.copy()
     column = lambda c: pd.to_numeric(fund[c], errors="coerce") if c in fund else pd.Series(np.nan, index=fund.index)
     ends = pd.to_datetime(fund["shares_outstanding_end"], errors="coerce")
-    factor = [price_history.split_factor(frames[t]["split"], e, date, shares_only=True)
-              if t in frames and pd.notna(e) else 1.0 for t, e in zip(fund["ticker"], ends)]
+    known = ends
+    if "shares_outstanding_filed" in fund:
+        known = pd.concat([ends, pd.to_datetime(fund["shares_outstanding_filed"], errors="coerce")], axis=1).max(axis=1)
+    factor = [price_history.split_factor(frames[t]["split"], k, date, shares_only=True)
+              if t in frames and pd.notna(k) else 1.0 for t, k in zip(fund["ticker"], known)]
     window = pd.Timestamp(date) - pd.DateOffset(months=settings.stale_months)
     recent_split = pd.Series([t in frames and price_history.split_factor(frames[t]["split"], window, date, shares_only=True) != 1.0
                               for t in fund["ticker"]], index=fund.index)

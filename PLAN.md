@@ -260,6 +260,14 @@ What a feasibility check found (Nov 2026, on the real cache):
       keeps 69 of 73 (3 lost caps, AOS a peer shift) and adds 6, all peer shifts
       Effect on a backtest: names without a past cap are left out, and the cheapest-fifth
       cutoffs run slightly looser than live
+- [x] Full panel built: 59 quarter ends, 2012-03-31 to 2026-09-30, 1,847 to 5,130 stocks,
+      63-137 deep value names a quarter. The first build had GOOG at $25T (a count filed after
+      the 2022 split, multiplied by it again) and BYD at $623B (a x1000 slip missed on a $0.08
+      EPS): splits now apply after the filing date, and the slip check allows 3x. Largest caps
+      are plausible every quarter; caps over 200x revenue and equity are SPAC-like shells
+      Cyclical trough finds 0 names before 2014 and 9-16 in 2014-15: it needs 7 fiscal years,
+      and XBRL mostly starts in 2009. Alphabet is missing before 2016: Google Inc's CIK isn't
+      in `cik_predecessors.yaml`, and other reorganizations may be missing the same way
 - [x] Test on hand-built slims that a figure filed one day after the date is not visible
       Known gaps: SIC codes and `ticker_overrides` are today's, not those of the past. 20-F and
       40-F filers get no past cap, nor do companies whose filings miss a class or an ADS ratio.
