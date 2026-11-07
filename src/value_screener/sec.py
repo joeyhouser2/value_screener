@@ -74,7 +74,19 @@ class SecClient:
         cache.write_json(path, obj)
         return None if payload is None else obj
 
-    def _fetch(self, url: str) -> dict | None:
+    def get_records(self, url: str, name: str, transform: Callable[[str], list[dict]],
+                    ttl_days: float | None = None):
+        """A large text file (an EDGAR index) cached only as the records ``transform`` keeps."""
+        path = self.cache_dir / f"{name}.json.gz"
+        hit = cache.read_json(path, self.ttl_days if ttl_days is None else ttl_days)
+        if hit is not None:
+            return None if hit == cache.MISSING else hit
+        text = self._fetch(url, lambda resp: resp.text)
+        obj = cache.MISSING if text is None else transform(text)
+        cache.write_json(path, obj)
+        return None if text is None else obj
+
+    def _fetch(self, url: str, parse: Callable = lambda resp: resp.json()):
         delay = self.base_delay
         last: Exception | None = None
         for attempt in range(self.attempts):
@@ -88,7 +100,7 @@ class SecClient:
                 if resp.status_code in _RETRY_STATUS:
                     raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
                 resp.raise_for_status()
-                return resp.json()
+                return parse(resp)
             except (requests.RequestException, ValueError) as exc:
                 last = exc
                 if attempt == self.attempts - 1:

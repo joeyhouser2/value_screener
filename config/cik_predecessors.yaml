@@ -9,3 +9,4 @@
 
 predecessors:
   2115436: [34088]   # XOM: ExxonMobil Holdings Corp <- Exxon Mobil Corp (2026 reorganization)
+  1652044: [1288776] # GOOGL, GOOG: Alphabet Inc <- Google Inc (2015 holding-company reorganization)

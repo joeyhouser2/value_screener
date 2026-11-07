@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import errors, fundamentals, history, industry, prices, screens, sec, track, trend, universe, valuation
-from .backtest import panel
+from .backtest import panel, survivorship
 from .config import REPO_ROOT, load_settings
 
 LABEL_ALIASES = {"undervalued": "Undervalued", "fair": "Fair", "overvalued": "Overvalued",
@@ -159,6 +159,25 @@ def cmd_panel_gate(args) -> int:
     return 0
 
 
+def cmd_survivorship(args) -> int:
+    s = load_settings()
+    missing, summ = survivorship.run(s, sec.client_from_settings(s))
+    print(f"{len(missing)} delisted 10-K filers missing from today's universe: "
+          f"{int(missing['acquired'].sum())} after a merger filing, {int(missing['reorganized'].sum())} reorganized, "
+          f"{int(missing['spac'].sum())} SPACs, {int(missing['failed'].sum())} failed or other, "
+          f"{int(missing['still_filing'].sum())} still filing")
+    show = summ.copy()
+    for c in ("hole_share",):
+        show[c] = show[c].map(lambda v: f"{v:.1%}")
+    for c in [c for c in show if c.endswith("_missing") or c.endswith("_failed")]:
+        show[c] = show[c].round(1)
+    print(show.to_string(index=False))
+    drag = survivorship.failure_drag(s, missing, survivorship.public_floats(sec.client_from_settings(s)), summ)
+    print("\nYearly drag if every failure the screens would have held went to zero:")
+    print(drag.round(3).to_string(index=False))
+    return 0
+
+
 COVERAGE_METRICS = ["market_cap", "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo"]
 
 
@@ -216,6 +235,9 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("panel-gate", help="Check that a replay reproduces the live screen.")
     pg.add_argument("--date", help="YYYY-MM-DD (default: the live screen's price date).")
     pg.set_defaults(func=cmd_panel_gate)
+
+    sv = sub.add_parser("survivorship", help="Count companies listed at each panel date but missing from it.")
+    sv.set_defaults(func=cmd_survivorship)
 
     cv = sub.add_parser("coverage",help="Percent of stocks with each metric, by industry.")
     cv.set_defaults(func=cmd_coverage)

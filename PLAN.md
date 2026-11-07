@@ -275,10 +275,31 @@ What a feasibility check found (Nov 2026, on the real cache):
       price cache's Nov 3 2026 bar is intraday, and the cache is never refetched
 
 10c — Survivorship: measure the hole before trusting anything inside it
-- [ ] From EDGAR's free quarterly form indexes, count 10-K filers per year missing from
+- [x] From EDGAR's free quarterly form indexes, count 10-K filers per year missing from
       today's universe, by size where filings allow. This is the size of the bias
-- [ ] Stress test: how many missing names, at what loss, would erase each screen's excess?
+      `value-screener survivorship` (`backtest/survivorship.py`): delisting notices (25-NSE, 25)
+      for 10-K filers not in today's universe, sized by `dei:EntityPublicFloat` from SEC's
+      frames API; 64 index downloads, cached. 5,100 delisted since 2011: 3,547 after a merger
+      filing (DEFM14A, tender offer, 13E-3 or 425 within 3 years), 89 reorganized into a CIK in
+      today's universe, 205 SPACs, 1,259 failed or other (bankruptcies, listing-rule failures,
+      going dark, reorganizations the name test misses: Apache, Baker Hughes)
+      Hole, with float of $50M+: 51-53% of what was listed in 2012, 34-46% in 2016-2019,
+      27-34% in 2020-2022, under 20% from late 2023 (later dates have had less time to lose
+      names). At the panel's hit rates by size, deep value would have held 57-97 more names a
+      quarter in 2016-2019 next to about 95 held, so the panel tests little more than half of
+      the screen; 11-18 of those were later failures. Cyclical trough: 19-32 more next to 36-57
+- [x] Stress test: how many missing names, at what loss, would erase each screen's excess?
+      Yearly drag if every failure the screens would have held went to zero that year:
+      deep value 0.2-1.1% a year, 1.4% in 2022 and 1.9% in 2023; cyclical trough 0.1-0.7%,
+      1.6% in 2023. Rough: it assumes failures were in the screens at the panel's hit rate
+      (cheap and distressed names may be likelier, the F-score and coverage checks less), and
+      a failure's loss lands in its last year. `erase_loss` gives the exact threshold once 10d
+      has returns. The missing takeovers cut the other way: value names are bid for at a premium
+      Known gaps: floats with scale slips (Party City $1T, Tofutti $11B) land in the wrong size
+      bucket; the 2013-2015 rows wait on the Alphabet rebuild of those panel dates
 - [ ] Decide on paid delisted prices only if results survive this far (see open decisions)
+      Proposal: a deep value excess over about 3% a year (three times the worst-case drag
+      outside 2022-23) survives; between 0 and 3% is inconclusive without delisted prices
 
 10d — Backtest
 - [ ] Freeze rules first: commit screen settings and these criteria before any result is seen.
