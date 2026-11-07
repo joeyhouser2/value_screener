@@ -32,6 +32,21 @@ backtest_start: "2012-01-01"  # first point-in-time screen; XBRL thins out befor
 past_cap_min_eps: 0.50      # net income / EPS stands in for shares only at or above this EPS
 past_cap_max_multiple: 1000 # a past cap over this x the larger of revenue and equity is bad data
 
+# Backtest rules (Phase 10d), frozen 2026-11-07 before any result was seen. Don't tune them
+# to the results: a change gets judged by forward tracking, not by rerunning this window.
+backtest_cost_caps: [300000000, 2000000000, 10000000000]  # market cap breakpoints for costs
+backtest_cost_bps: [150, 75, 30, 10]   # one-way cost below, between and above the breakpoints
+backtest_min_dollar_volume: 1000000    # median daily close x volume over the prior days below
+backtest_volume_days: 20
+backtest_starts: {deep_value: "2016-12-31", cyclical_trough: "2018-12-31"}  # first rebalance
+backtest_long_start: "2012-03-31"      # deep value's longer check, on its own
+backtest_large_cap: 10000000000        # "large caps only"
+backtest_hurdle: 0.03                  # yearly excess over the same-universe equal weight to pass
+backtest_block_quarters: 4             # bootstrap block length
+backtest_subperiods:                   # by calendar year of the returns, inclusive
+  deep_value: [[2017, 2019], [2020, 2022], [2023, 2026]]
+  cyclical_trough: [[2019, 2020], [2021, 2022], [2023, 2026]]
+
 # Industry fallback for tickers without an SEC SIC code (mostly foreign filers).
 yf_industry_fallback: true
 

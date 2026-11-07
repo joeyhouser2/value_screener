@@ -31,6 +31,18 @@ class Settings:
     backtest_start: str = "2012-01-01"
     past_cap_min_eps: float = 0.50
     past_cap_max_multiple: float = 1000.0
+    backtest_cost_caps: tuple[float, ...] = (300e6, 2e9, 10e9)
+    backtest_cost_bps: tuple[float, ...] = (150, 75, 30, 10)
+    backtest_min_dollar_volume: float = 1e6
+    backtest_volume_days: int = 20
+    backtest_starts: dict = field(default_factory=lambda: {"deep_value": "2016-12-31", "cyclical_trough": "2018-12-31"})
+    backtest_long_start: str = "2012-03-31"
+    backtest_large_cap: float = 10e9
+    backtest_hurdle: float = 0.03
+    backtest_block_quarters: int = 4
+    backtest_subperiods: dict = field(default_factory=lambda: {
+        "deep_value": [[2017, 2019], [2020, 2022], [2023, 2026]],
+        "cyclical_trough": [[2019, 2020], [2021, 2022], [2023, 2026]]})
     yf_industry_fallback: bool = True
     min_peers: int = 8
     undervalued_pct: float = 0.20
@@ -77,6 +89,7 @@ def load_settings(path: Path | None = None, **overrides) -> Settings:
         raw["sec_user_agent"] = os.environ["SEC_USER_AGENT"]
     known = {f.name for f in fields(Settings)}
     kwargs = {k: v for k, v in raw.items() if k in known}
-    if "exchanges" in kwargs:
-        kwargs["exchanges"] = tuple(kwargs["exchanges"])
+    for k in ("exchanges", "backtest_cost_caps", "backtest_cost_bps"):
+        if k in kwargs:
+            kwargs[k] = tuple(kwargs[k])
     return replace(Settings(**kwargs), **overrides)

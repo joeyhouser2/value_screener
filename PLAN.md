@@ -318,6 +318,24 @@ What a feasibility check found (Nov 2026, on the real cache):
       holds, large caps only, without financials, each sector removed in turn, and by
       subperiod. An edge living in one sector or one year, or at one setting, isn't an edge
 
+Frozen 2026-11-07, before any result was seen (values in `config/settings.yaml`, `backtest_*`):
+- Costs as above, charged on every trade, the benchmarks built from stocks included. $1M median
+  daily dollar volume over the prior 20 days to be bought. Screen settings as committed in `fb7696a`
+- Windows: deep value from the 2016-12-31 rebalance (2012-03-31 reported alongside, not judged),
+  cyclical trough from 2018-12-31; both to the latest close in the price cache
+- "Beats" = higher annualized return after costs over the window. Large caps only = $10B+, and
+  it must beat SPY and the $10B+ same-universe equal weight. Subperiods by return year:
+  deep value 2017-19, 2020-22, 2023-26; trough 2019-20, 2021-22, 2023-26; "most" = 2 of 3
+  beating the same-universe equal weight. Survivorship: excess over the same-universe equal
+  weight, less the screen's average yearly failure drag from 10c, stays above 0
+- Pass: all of 10e's conditions, and excess over the same-universe equal weight above 3% a year.
+  All conditions met but that excess 0-3%: inconclusive. Anything else: fail
+- Sensitivity, every variant reported: each screen threshold one step each way (deep value
+  pct 0.15 / 0.25, min F 5 / 7, max P/TBV 2 / 4; trough pct 0.20 / 0.40, margin position 0.25 /
+  0.40, min F 3 / 5; both: max share CAGR 0.03 / 0.08), `turning` required, 12 and 36 month
+  holds (overlapping quarterly cohorts), large caps only, without Financials, each sector out
+  in turn. `cyclical_margin_vol` isn't varied: the cyclical flag is computed before the panel
+
 10e — Verdict
 - [ ] Written result in `docs/`, including failures and what the test can't show
 - [ ] Passes only if, after costs, a screen beats SPY, the same-universe equal weight and the

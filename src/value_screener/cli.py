@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import errors, fundamentals, history, industry, prices, screens, sec, track, trend, universe, valuation
-from .backtest import panel, survivorship
+from .backtest import panel, returns, survivorship
 from .config import REPO_ROOT, load_settings
 
 LABEL_ALIASES = {"undervalued": "Undervalued", "fair": "Fair", "overvalued": "Overvalued",
@@ -159,6 +159,45 @@ def cmd_panel_gate(args) -> int:
     return 0
 
 
+def _average_drag(s, client) -> dict[str, float]:
+    """Each screen's average yearly failure drag (10c) over the years it's judged on."""
+    missing, summ = survivorship.run(s, client, verbose=False)
+    drag = survivorship.failure_drag(s, missing, survivorship.public_floats(client), summ)
+    out = {}
+    for c, start in s.backtest_starts.items():
+        rows = drag[drag["year"] > dt.date.fromisoformat(start).year]
+        out[c] = float(rows[f"{c}_drag"].mean()) if len(rows) else float("nan")
+    return out
+
+
+def cmd_backtest(args) -> int:
+    s = load_settings()
+    drag = _average_drag(s, sec.client_from_settings(s))
+    results = returns.run(s, drag)
+    returns.save(s, results)
+    pct = lambda v: f"{v:+.1%}" if pd.notna(v) else ""
+    for label, r in results.items():
+        print(f"\n=== {label} ({r.periods['screen']['start'].iloc[0].date()} to {r.periods['screen']['stop'].iloc[-1].date()}) ===")
+        show = r.summary.copy()
+        for c in show:
+            if c.startswith(("cagr", "max_", "worst", "excess", "cost")):
+                show[c] = show[c].map(pct)
+            elif c.startswith("t_") or c in ("avg_stocks", "turnover_per_year"):
+                show[c] = show[c].round(2)
+        print(show.to_string(index=False))
+        print("\nBy year:")
+        print(r.yearly.map(pct).to_string())
+        if len(r.sensitivity):
+            sens = r.sensitivity[["variant", "cagr", "avg_stocks", "excess_SPY", f"excess_{returns.UNIVERSE}",
+                                  f"t_{returns.UNIVERSE}", f"excess_{returns.BASELINE}"]].copy()
+            for c in sens.columns[1:]:
+                sens[c] = sens[c].round(2) if c.startswith(("t_", "avg")) else sens[c].map(pct)
+            print("\nSensitivity (excess over the same-universe EW uses each variant's own universe):")
+            print(sens.to_string(index=False))
+        print(f"\nVerdict: {r.verdicts}")
+    return 0
+
+
 def cmd_survivorship(args) -> int:
     s = load_settings()
     missing, summ = survivorship.run(s, sec.client_from_settings(s))
@@ -235,6 +274,9 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("panel-gate", help="Check that a replay reproduces the live screen.")
     pg.add_argument("--date", help="YYYY-MM-DD (default: the live screen's price date).")
     pg.set_defaults(func=cmd_panel_gate)
+
+    bt = sub.add_parser("backtest", help="Phase 10d: the screens' returns on the panel, after costs.")
+    bt.set_defaults(func=cmd_backtest)
 
     sv = sub.add_parser("survivorship", help="Count companies listed at each panel date but missing from it.")
     sv.set_defaults(func=cmd_survivorship)
