@@ -126,3 +126,33 @@ def test_verdict():
     assert rt.verdict(_main(0.05, 0.04, 0.02), large, [0.01, -0.01, -0.02], 0.01, S)[0] == "fail"
     assert rt.verdict(_main(0.05, 0.04, 0.02), large, [0.01, 0.01, 0.02], 0.05, S)[0] == "fail"   # drag
     assert rt.verdict(_main(0.05, 0.04, 0.02), _main(-0.01, 0.01, 0), [0.01, 0.01, 0.02], 0.01, S)[0] == "fail"
+
+
+def test_a_spliced_price_series_is_left_out_of_that_quarter():
+    adj = _prices(AAA=110, BBB=100)
+    adj.loc[adj.index >= pd.Timestamp("2020-05-15"), "BBB"] *= 300        # old shares spliced to new
+    p = _panel([("AAA", 20e9, 10, True, "Energy"), ("BBB", 20e9, 10, True, "Energy")])
+    per, _ = rt.simulate(rt.Variant("x", "deep_value"), S, {Q1: p}, adj, _volume(adj), Q1)
+    assert per.iloc[0]["stocks"] == 1 and per.iloc[0]["spliced"] == 1
+    assert per.iloc[0]["gross"] == pytest.approx(adj.loc[DAYS[-2], "AAA"] / 100 - 1)
+
+
+def test_prices_stop_at_the_stocks_last_bar(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    d = tmp_path / "cache" / "price_history"
+    d.mkdir(parents=True)
+    def frame(days):
+        return pd.DataFrame({"close": 10.0, "adj_close": 10.0, "volume": 1e6, "split": 0.0}, index=days)
+    frame(DAYS).to_parquet(d / "SPY.parquet")
+    frame(DAYS[:-3]).to_parquet(d / "AAA.parquet")
+    adj, _ = rt.load_prices(s, ["AAA", "SPY"])
+    assert adj.index.max() == DAYS[-4]
+    assert rt.market_days(adj)[-1] == DAYS[-5]
+
+
+def test_an_adjusted_close_below_zero_is_left_out():
+    adj = _prices(AAA=110, BBB=100)
+    adj.loc[adj.index >= pd.Timestamp("2020-06-15"), "BBB"] = -5.0
+    p = _panel([("AAA", 20e9, 10, True, "Energy"), ("BBB", 20e9, 10, True, "Energy")])
+    per, _ = rt.simulate(rt.Variant("x", "deep_value"), S, {Q1: p}, adj, _volume(adj), Q1)
+    assert per.iloc[0]["stocks"] == 1 and per.iloc[0]["spliced"] == 1

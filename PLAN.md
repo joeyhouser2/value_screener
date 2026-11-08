@@ -265,9 +265,10 @@ What a feasibility check found (Nov 2026, on the real cache):
       the 2022 split, multiplied by it again) and BYD at $623B (a x1000 slip missed on a $0.08
       EPS): splits now apply after the filing date, and the slip check allows 3x. Largest caps
       are plausible every quarter; caps over 200x revenue and equity are SPAC-like shells
-      Cyclical trough finds 0 names before 2014 and 9-16 in 2014-15: it needs 7 fiscal years,
-      and XBRL mostly starts in 2009. Alphabet is missing before 2016: Google Inc's CIK isn't
-      in `cik_predecessors.yaml`, and other reorganizations may be missing the same way
+      Cyclical trough finds 0 names before 2014 and 9-22 in 2014-15: it needs 7 fiscal years,
+      and XBRL mostly starts in 2009. Alphabet was missing before 2016 until Google Inc's CIK
+      went into `cik_predecessors.yaml` (rebuilt: $232B end 2012, $374B end 2013); other
+      reorganizations may be missing the same way
 - [x] Test on hand-built slims that a figure filed one day after the date is not visible
       Known gaps: SIC codes and `ticker_overrides` are today's, not those of the past. 20-F and
       40-F filers get no past cap, nor do companies whose filings miss a class or an ADS ratio.
@@ -296,25 +297,29 @@ What a feasibility check found (Nov 2026, on the real cache):
       a failure's loss lands in its last year. `erase_loss` gives the exact threshold once 10d
       has returns. The missing takeovers cut the other way: value names are bid for at a premium
       Known gaps: floats with scale slips (Party City $1T, Tofutti $11B) land in the wrong size
-      bucket; the 2013-2015 rows wait on the Alphabet rebuild of those panel dates
-- [ ] Decide on paid delisted prices only if results survive this far (see open decisions)
-      Proposal: a deep value excess over about 3% a year (three times the worst-case drag
-      outside 2022-23) survives; between 0 and 3% is inconclusive without delisted prices
+      bucket. 2013-2015, after the rebuild: hole 46-51%, deep value drag 0.3-0.7% a year
+- [x] Decide on paid delisted prices only if results survive this far: they didn't (10e), so
+      not needed. Missing failures would only make the screens look worse
 
 10d — Backtest
-- [ ] Freeze rules first: commit screen settings and these criteria before any result is seen.
-      Every variant tried gets reported, not only the best
-- [ ] Equal weight, rebalanced quarterly at the next close after the date; `deep_value` from
+- [x] Freeze rules first: commit screen settings and these criteria before any result is seen.
+      Every variant tried gets reported, not only the best. Committed in `6d7e26e`
+- [x] Equal weight, rebalanced quarterly at the next close after the date; `deep_value` from
       2017 (2012 as a longer check on its own), `cyclical_trough` from the end of 2018
-- [ ] Costs by size (one way: 10 bps over $10B, 30 bps $2-10B, 75 bps $300M-2B, 150 bps below),
+      `value-screener backtest` (`backtest/returns.py`), results in `data/backtest/results/`
+- [x] Costs by size (one way: 10 bps over $10B, 30 bps $2-10B, 75 bps $300M-2B, 150 bps below),
       names under a minimum dollar volume excluded, as thin stocks can't be traded at their close
-- [ ] Compare with, on the same dates and total-return basis:
+      Data rules added after the first run, for every strategy alike: a quarter is left out
+      for a stock whose adjusted close jumps over 5x in a day (Yahoo's bankruptcy splices:
+      CHRD +18,470% in Q4 2020) or isn't positive (NFE). 31 stock-quarters out of the equal
+      weight, 2 of deep value. The run ends at the stocks' last full close
+- [x] Compare with, on the same dates and total-return basis:
       SPY (the goal), RSP and IWD; every stock in the same universe, equal weight, which
       shares its survivorship bias and so is the fairest test; and the cheapest 10% by earnings
       yield, the dumb alternative. If that matches a screen, the screen adds nothing
-- [ ] Report: return and excess per year, max drawdown, worst year, stocks held per quarter,
+- [x] Report: return and excess per year, max drawdown, worst year, stocks held per quarter,
       turnover; t-statistic with a block bootstrap, as overlapping returns aren't independent
-- [ ] Sensitivity: each threshold moved up and down, `turning` on and off, 3 / 12 / 36 month
+- [x] Sensitivity: each threshold moved up and down, `turning` on and off, 3 / 12 / 36 month
       holds, large caps only, without financials, each sector removed in turn, and by
       subperiod. An edge living in one sector or one year, or at one setting, isn't an edge
 
@@ -337,18 +342,23 @@ Frozen 2026-11-07, before any result was seen (values in `config/settings.yaml`,
   in turn. `cyclical_margin_vol` isn't varied: the cyclical flag is computed before the panel
 
 10e — Verdict
-- [ ] Written result in `docs/`, including failures and what the test can't show
-- [ ] Passes only if, after costs, a screen beats SPY, the same-universe equal weight and the
+- [x] Written result in `docs/validation.md`, including failures and what the test can't show
+- [x] Passes only if, after costs, a screen beats SPY, the same-universe equal weight and the
       cheapest-10% baseline; holds up in most subperiods and with large caps only; and its
       excess outlasts the survivorship stress test
-- [ ] If it fails: say so. Don't tune until it passes, as that fits the screens to one history.
+- [x] If it fails: say so. Don't tune until it passes, as that fits the screens to one history.
       Any change gets judged by forward tracking, not by rerunning this window
+      **Both fail every check.** After costs, deep value 7.0% a year (2017-Nov 2026) against
+      SPY 14.8%, the same-universe equal weight 10.8% and the cheapest 10% 10.7%: behind in
+      all three subperiods, with large caps only, and in all 24 variants. Cyclical trough 12.4%
+      (2019-Nov 2026) against SPY 16.8%, equal weight 12.6%, cheapest 10% 13.7%: a tie with
+      the equal weight at best (7 of 24 variants ahead by 0.2-1.0%, t under 0.4), ahead in 1
+      of 3 subperiods. Both did well when value led (2021-22) and lagged badly in 2020 and 2024
 
 Open decisions
-- Paid delisted prices (Sharadar, Norgate or similar): without them, 10d can reject a screen
-  more convincingly than it can confirm one. Decide after 10c
-- Costs and pass criteria above are proposals: agree them before 10d, as they can't fairly
-  change after
+- Paid delisted prices (Sharadar, Norgate or similar): decided against, as both screens failed
+  without them and missing failures only flatter a screen
+- Costs and pass criteria: agreed 2026-11-07 and frozen in `6d7e26e`
 
 ## Known pitfalls
 - Inconsistent XBRL tags (Revenues vs RevenueFromContractWithCustomer...) -> fallback lists

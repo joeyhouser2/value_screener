@@ -8,7 +8,13 @@ Rules (``backtest_*`` in settings.yaml) were fixed before any result was seen:
   weight traded: names bought, sold, and the trim or top-up back to equal weight. Stocks with
   a median daily dollar volume under ``backtest_min_dollar_volume`` can't be bought.
 - Returns from Yahoo's dividend-adjusted close. A stock that stops trading holds its last price
-  until the next rebalance, as if sold there. The panel only has today's universe, so failures
+  until the next rebalance, as if sold there. A stock whose adjusted close rises over
+  ``SPLICE_JUMP`` x in one day is left out of that quarter: Yahoo splices a company's old
+  and new shares after a bankruptcy (Oasis / CHRD, November 2020: +18,000% in a quarter for
+  shareholders who were in fact wiped out). Found after the first run; it applies to every
+  strategy alike, and ``spliced`` counts the names it drops. So is one whose adjusted close
+  isn't positive: Yahoo's dividend adjustment can push it below zero (NFE, January 2023).
+- The run ends at the stocks' last full close, as the cache's last bar may be intraday. The panel only has today's universe, so failures
   are missing: Phase 10c sizes that hole.
 - Benchmarks: SPY, RSP and IWD over the same days, no costs; every eligible stock at equal
   weight (shares the panel's survivorship bias, so the fairest test); and the cheapest 10% by
@@ -34,6 +40,7 @@ BASELINE = "Cheapest 10% E/Y"
 SCREEN_COLS = ("deep_value", "cyclical_trough")
 FINANCIALS = "Financials"
 BOOT_SAMPLES = 5000
+SPLICE_JUMP = 5.0       # a one-day rise this large, split-adjusted, is a spliced series, not a return
 
 # One step each way per threshold (see PLAN.md, 10d): fixed with the rules, before any result.
 STEPS = {
@@ -79,15 +86,19 @@ def load_panels(settings: Settings, dates: list[dt.date]) -> dict[dt.date, pd.Da
 def load_prices(settings: Settings, tickers: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(dividend-adjusted closes, rolling median dollar volume), one column per ticker."""
     frames = price_history.load(settings, sorted(set(tickers)))
+    adj = pd.DataFrame({t: f["adj_close"] for t, f in frames.items()}).sort_index()
+    stocks = adj.drop(columns=[e for e in ETFS if e in adj])
+    if stocks.shape[1]:
+        adj = adj.loc[:stocks.dropna(how="all").index.max()]      # no later than the stocks' data
     # Carried forward, so a stock that stops trading holds its last price.
-    adj = pd.DataFrame({t: f["adj_close"] for t, f in frames.items()}).sort_index().ffill()
-    dollars = pd.DataFrame({t: f["close"] * f["volume"] for t, f in frames.items()}).sort_index()
+    adj = adj.ffill()
+    dollars = pd.DataFrame({t: f["close"] * f["volume"] for t, f in frames.items()}).sort_index().loc[:adj.index.max()]
     n = settings.backtest_volume_days
     return adj, dollars.rolling(n, min_periods=n // 2).median()
 
 
 def market_days(adj: pd.DataFrame) -> pd.DatetimeIndex:
-    """SPY's trading days, without the last bar: the cache's last bar may be intraday."""
+    """SPY's trading days to the stocks' last bar, without it: it may be intraday."""
     return adj["SPY"].dropna().index[:-1]
 
 
@@ -140,7 +151,14 @@ def simulate(v: Variant, settings: Settings, panels: dict, adj: pd.DataFrame, vo
         target = pd.Series(dtype=float)
         live = [c for c in cohorts if len(c)]
         at_go = adj.loc[go]
+        window = adj.loc[go:stop]
+        bad_px = (window <= 0).any() | (window / window.shift(1) > SPLICE_JUMP).any()
+        spliced = set(window.columns[bad_px])
+        dropped = 0
         for c in live:
+            bad = c.isin(list(spliced))
+            dropped += int(bad.sum())
+            c = c[~bad]
             priced = c[at_go.reindex(c).notna().to_numpy()]
             if len(priced):
                 target = target.add(pd.Series(1 / (len(priced) * len(live)), index=priced), fill_value=0)
@@ -160,7 +178,7 @@ def simulate(v: Variant, settings: Settings, panels: dict, adj: pd.DataFrame, vo
         nav.append(value * (1 - cost) * path)
         value *= (1 - cost) * (1 + gross)
         rows.append({"date": d, "start": go, "stop": stop, "stocks": len(target), "gross": gross, "cost": cost,
-                     "net": (1 - cost) * (1 + gross) - 1, "turnover": float(trade.sum() / 2)})
+                     "net": (1 - cost) * (1 + gross) - 1, "turnover": float(trade.sum() / 2), "spliced": dropped})
     nav = pd.concat(nav) if nav else pd.Series(dtype=float)
     return pd.DataFrame(rows), nav[~nav.index.duplicated(keep="last")]
 
@@ -214,7 +232,8 @@ def stats(name: str, periods: pd.DataFrame, nav: pd.Series, against: dict[str, p
            "max_drawdown": max_drawdown(nav), "worst_year": float(yearly(periods).min()) if len(periods) else np.nan,
            "avg_stocks": float(periods["stocks"].mean()), "min_stocks": int(periods["stocks"].min()),
            "turnover_per_year": float(periods["turnover"].sum() / max(len(periods) / 4, 1e-9)),
-           "cost_per_year": float(periods["cost"].sum() / max(len(periods) / 4, 1e-9))}
+           "cost_per_year": float(periods["cost"].sum() / max(len(periods) / 4, 1e-9)),
+           "spliced": int(periods["spliced"].sum()) if "spliced" in periods else 0}
     for b, bp in against.items():
         row[f"excess_{b}"] = row["cagr"] - annualized(bp)
         row[f"t_{b}"] = block_t(periods["net"].to_numpy() - bp["net"].to_numpy(), block)
