@@ -29,6 +29,11 @@ streamlit run app.py                         # dashboard
 `scripts/weekly_refresh.ps1` runs refresh + export + coverage for Task Scheduler
 (registration snippet in the script header).
 
+Desktop shortcut: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make_shortcut.ps1`
+puts a "Value Screener" icon on the Desktop. It runs `scripts/launch_dashboard.bat`, which
+starts the dashboard and opens it in the browser, or just opens it if it's already running.
+`scripts/make_icon.py` redraws `assets/icon.ico`.
+
 ## Pipeline
 
 | Phase | Module | Output |
