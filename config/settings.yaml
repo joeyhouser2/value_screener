@@ -14,10 +14,42 @@ exchanges: [NASDAQ, NYSE]   # add "NYSE American" to include it
 
 # Fundamentals
 stale_months: 15            # flag fundamentals whose latest period is older than this
+history_years: 15           # fiscal years kept in data/fundamentals_history.parquet
 
 # Prices
 price_chunk: 200            # tickers per yfinance batch download
 price_pause: 1.0            # seconds between batches
+trend_retries: 2            # extra passes over tickers Yahoo failed on
+trend_retry_pause: 30.0     # seconds before each extra pass
+trend_batch_timeout: 120.0  # give up on a batch after this; a normal one takes about 7s
+
+# Sanity check: these tickers' P/E against Yahoo's trailing P/E (value-screener sanity)
+sanity_tickers: [AAPL, MSFT, GOOGL, JPM, XOM, KO, JNJ, WMT, CAT, HD]
+sanity_pe_tol: 0.10
+
+# Forward tracking
+track_cohort_days: 91       # start a new tracked cohort this often
+track_baseline_pct: 0.10    # cheapest share by earnings yield, tracked as the dumb alternative
+
+# Backtest
+backtest_start: "2012-01-01"  # first point-in-time screen; XBRL thins out before this
+past_cap_min_eps: 0.50      # net income / EPS stands in for shares only at or above this EPS
+past_cap_max_multiple: 1000 # a past cap over this x the larger of revenue and equity is bad data
+
+# Backtest rules (Phase 10d), frozen 2026-11-07 before any result was seen. Don't tune them
+# to the results: a change gets judged by forward tracking, not by rerunning this window.
+backtest_cost_caps: [300000000, 2000000000, 10000000000]  # market cap breakpoints for costs
+backtest_cost_bps: [150, 75, 30, 10]   # one-way cost below, between and above the breakpoints
+backtest_min_dollar_volume: 1000000    # median daily close x volume over the prior days below
+backtest_volume_days: 20
+backtest_starts: {deep_value: "2016-12-31", cyclical_trough: "2018-12-31"}  # first rebalance
+backtest_long_start: "2012-03-31"      # deep value's longer check, on its own
+backtest_large_cap: 10000000000        # "large caps only"
+backtest_hurdle: 0.03                  # yearly excess over the same-universe equal weight to pass
+backtest_block_quarters: 4             # bootstrap block length
+backtest_subperiods:                   # by calendar year of the returns, inclusive
+  deep_value: [[2017, 2019], [2020, 2022], [2023, 2026]]
+  cyclical_trough: [[2019, 2020], [2021, 2022], [2023, 2026]]
 
 # Industry fallback for tickers without an SEC SIC code (mostly foreign filers).
 yf_industry_fallback: true
@@ -32,3 +64,29 @@ min_metrics: 2              # fewer valuation metrics than this -> "Insufficient
 
 # Quality filter (value-trap guard) for Undervalued
 quality_max_de_pct: 0.80    # debt/equity must be under this industry percentile
+
+# Through-the-cycle metrics
+normalized_window: 10       # fiscal years averaged
+normalized_min_years: 5     # fewer years of data -> normalized metric is missing
+pe10_min_years: 3           # P/E10 for young companies from this many; shown but not peer-ranked
+cyclical_margin_vol: 0.10   # margin std dev (10 points) that marks a company cyclical
+
+# Survival checks
+min_interest_coverage: 2.0  # EBIT / interest expense (net-cash companies pass anyway)
+altman_z_distress: 1.81     # Z, manufacturers: below this is distress, above safe is safe
+altman_z_safe: 2.99
+altman_z2_distress: 1.10    # Z'', everyone else: a different scale, so its own cutoffs
+altman_z2_safe: 2.60
+
+# Deep value and cyclical trough screens
+screen_min_market_cap: 50000000  # below this the data is too unreliable (P/NCAV of 0.0002)
+screen_min_f_tests: 6       # fewer F-score tests computable -> can't pass on so little evidence
+max_share_cagr: 0.05        # shares growing faster than this a year fail: P/E10 flatters them
+deep_value_pct: 0.20        # P/TBV or EV/sales in the industry's cheapest 20%
+deep_value_min_f: 6         # F-score out of 9, scaled to the tests that ran
+deep_value_max_p_tbv: 3.0   # asset backing, whatever the industry's own level
+min_p_ncav: 0.1             # P/NCAV under 1 is cheap; under this is a data error, not a bargain
+trough_min_years: 7         # fewer fiscal years can't show where a cycle stands
+trough_max_margin_position: 0.33  # margin in the bottom third of its own range
+trough_pct: 0.30            # P/E10 or EV/mid-cycle EBIT in the industry's cheapest 30%
+trough_min_f: 4             # lower bar: the F-score rewards rising margins, which a trough lacks

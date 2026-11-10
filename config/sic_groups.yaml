@@ -2,6 +2,7 @@
 # first matching range wins, so specific ranges come before broad ones.
 # `special` marks industries scored with their own metric set (see valuation.py):
 #   bank, insurer, reit, utility.
+# `cyclical` marks groups whose earnings follow the economic or commodity cycle (normalized.py).
 
 groups:
   # --- Financials (special metric sets first) ---
@@ -20,25 +21,25 @@ groups:
   - {group: Midstream & Pipelines, sector: Energy, ranges: [[4610, 4619], [4922, 4922]]}
   - {group: Waste & Environmental, sector: Industrials, ranges: [[4950, 4959]]}
   - {group: Utilities, sector: Utilities, special: utility, ranges: [[4900, 4949], [4960, 4999]]}
-  - {group: Oil & Gas Services, sector: Energy, ranges: [[1380, 1389], [3530, 3533]]}
-  - {group: Oil & Gas Producers, sector: Energy, ranges: [[1300, 1379]]}
-  - {group: Refining & Marketing, sector: Energy, ranges: [[2900, 2999], [5170, 5172]]}
+  - {group: Oil & Gas Services, cyclical: true, sector: Energy, ranges: [[1380, 1389], [3530, 3533]]}
+  - {group: Oil & Gas Producers, cyclical: true, sector: Energy, ranges: [[1300, 1379]]}
+  - {group: Refining & Marketing, cyclical: true, sector: Energy, ranges: [[2900, 2999], [5170, 5172]]}
 
   # --- Materials ---
-  - {group: Metals & Mining, sector: Materials, ranges: [[1000, 1299], [1400, 1499], [3300, 3399]]}
+  - {group: Metals & Mining, cyclical: true, sector: Materials, ranges: [[1000, 1299], [1400, 1499], [3300, 3399]]}
   - {group: Household & Personal Products, sector: Consumer Staples, ranges: [[2840, 2844]]}
   - {group: Pharmaceuticals, sector: Health Care, ranges: [[2830, 2834]]}
   - {group: Biotech, sector: Health Care, ranges: [[2835, 2836], [8731, 8731]]}
-  - {group: Chemicals, sector: Materials, ranges: [[2800, 2899], [3080, 3089]]}
-  - {group: "Paper, Packaging & Forest", sector: Materials, ranges: [[2400, 2499], [2600, 2679], [3410, 3412]]}
-  - {group: Building Materials, sector: Materials, ranges: [[3200, 3299]]}
+  - {group: Chemicals, cyclical: true, sector: Materials, ranges: [[2800, 2899], [3080, 3089]]}
+  - {group: "Paper, Packaging & Forest", cyclical: true, sector: Materials, ranges: [[2400, 2499], [2600, 2679], [3410, 3412]]}
+  - {group: Building Materials, cyclical: true, sector: Materials, ranges: [[3200, 3299]]}
 
   # --- Health care ---
   - {group: Medical Devices & Instruments, sector: Health Care, ranges: [[3840, 3851], [3826, 3826]]}
   - {group: Healthcare Services, sector: Health Care, ranges: [[8000, 8099], [5122, 5122]]}
 
   # --- Technology & communication ---
-  - {group: Semiconductors, sector: Technology, ranges: [[3674, 3674], [3559, 3559]]}
+  - {group: Semiconductors, cyclical: true, sector: Technology, ranges: [[3674, 3674], [3559, 3559]]}
   - {group: Software & IT Services, sector: Technology, ranges: [[7370, 7379]]}
   - {group: Hardware & Networking, sector: Technology, ranges: [[3570, 3579], [3660, 3669]]}
   - {group: Electronic Components & Instruments, sector: Technology, ranges: [[3670, 3699], [3810, 3839], [3860, 3879]]}
@@ -47,11 +48,11 @@ groups:
 
   # --- Industrials ---
   - {group: Aerospace & Defense, sector: Industrials, ranges: [[3720, 3729], [3760, 3769], [3480, 3489]]}
-  - {group: Autos & Parts, sector: Consumer Discretionary, ranges: [[3010, 3011], [3710, 3716], [3750, 3751], [3790, 3799], [5010, 5015], [5500, 5599]]}
-  - {group: Homebuilders, sector: Consumer Discretionary, ranges: [[1520, 1531]]}
-  - {group: Construction & Engineering, sector: Industrials, ranges: [[1500, 1799], [8711, 8711]]}
-  - {group: Transportation, sector: Industrials, ranges: [[4000, 4799], [3730, 3743], [7510, 7519]]}
-  - {group: Machinery & Electrical Equipment, sector: Industrials, ranges: [[3400, 3599], [3600, 3629]]}
+  - {group: Autos & Parts, cyclical: true, sector: Consumer Discretionary, ranges: [[3010, 3011], [3710, 3716], [3750, 3751], [3790, 3799], [5010, 5015], [5500, 5599]]}
+  - {group: Homebuilders, cyclical: true, sector: Consumer Discretionary, ranges: [[1520, 1531]]}
+  - {group: Construction & Engineering, cyclical: true, sector: Industrials, ranges: [[1500, 1799], [8711, 8711]]}
+  - {group: Transportation, cyclical: true, sector: Industrials, ranges: [[4000, 4799], [3730, 3743], [7510, 7519]]}
+  - {group: Machinery & Electrical Equipment, cyclical: true, sector: Industrials, ranges: [[3400, 3599], [3600, 3629]]}
   - {group: Distributors, sector: Industrials, ranges: [[5000, 5199]]}
   - {group: Business Services, sector: Industrials, ranges: [[7300, 7369], [7380, 7389], [8100, 8199], [8700, 8799]]}
 
@@ -62,13 +63,19 @@ groups:
   - {group: Retail, sector: Consumer Discretionary, ranges: [[5200, 5999]]}
   - {group: Apparel & Footwear, sector: Consumer Discretionary, ranges: [[2200, 2399], [3020, 3199]]}
   - {group: "Leisure, Travel & Hotels", sector: Consumer Discretionary, ranges: [[7000, 7099], [7900, 7999], [3940, 3949]]}
-  - {group: Consumer Durables, sector: Consumer Discretionary, ranges: [[2500, 2599], [3630, 3659], [3900, 3999]]}
+  - {group: Consumer Durables, cyclical: true, sector: Consumer Discretionary, ranges: [[2500, 2599], [3630, 3659], [3900, 3999]]}
   - {group: Consumer Services, sector: Consumer Discretionary, ranges: [[7200, 7299], [7500, 7699], [8200, 8399]]}
   - {group: Other Manufacturing, sector: Industrials, ranges: [[2000, 3999]]}
 
 # Yahoo fallback for tickers with no SIC: first keyword found in Yahoo's industry
 # (case-insensitive) picks the group; otherwise the Yahoo sector picks the sector
 # and the group becomes "Other <sector>".
+# Tickers whose SIC code misdescribes the business. SEC files these two under 6411
+# (agents and brokers), but they underwrite: Enact is a mortgage insurer, Equitable a life insurer.
+ticker_overrides:
+  ACT: Insurance
+  EQH: Insurance
+
 yahoo_industry_keywords:
   - [REIT, REITs]
   - [Bank, Banks]

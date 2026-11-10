@@ -117,3 +117,66 @@ def test_build_screen_joins_and_sorts():
     out = v.build_screen(uni, ind, fund, px, Settings(min_peers=2))
     assert list(out.columns) == v.SCREEN_COLUMNS
     assert out["ticker"].tolist() == ["A", "B"]
+
+
+def test_ebit_falls_back_to_pretax_plus_interest():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0, 100.0, 100.0], "operating_income": [20.0, None, None],
+        "pretax_income": [99.0, 15.0, 15.0], "interest_expense": [1.0, 5.0, None],
+        "d_and_a": [10.0, 10.0, 10.0]}))
+    assert df["ebit"].tolist() == [20, 20, 15]
+    assert df["ebitda"].tolist() == [30, 30, 25]
+
+
+def test_stale_operating_income_not_paired_with_current_revenue():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0, 100.0], "as_of": pd.to_datetime(["2026-08-31", "2026-08-31"]),
+        "operating_income": [50.0, 50.0],
+        "operating_income_end": pd.to_datetime(["2021-08-31", "2026-08-31"]),
+        "pretax_income": [15.0, 15.0], "pretax_income_end": pd.to_datetime(["2026-08-31"] * 2),
+        "interest_expense": [5.0, 5.0], "interest_expense_end": pd.to_datetime(["2026-08-31"] * 2)}))
+    assert df["ebit"].tolist() == [20, 50]
+
+
+def test_stale_d_and_a_still_used():
+    df = v.compute_metrics(pd.DataFrame({
+        "market_cap": [100.0], "net_income": [10.0], "as_of": pd.to_datetime(["2026-08-31"]),
+        "d_and_a": [5.0], "d_and_a_end": pd.to_datetime(["2021-08-31"])}))
+    assert df["p_ffo"].iloc[0] == pytest.approx(100 / 15)
+
+
+def _debt_row(**kw):
+    return pd.DataFrame({"market_cap": [1000.0], "net_income": [10.0], "cash": [100.0],
+                         "total_debt": [50.0], "as_of": pd.to_datetime(["2026-06-30"]),
+                         "total_debt_end": pd.to_datetime([kw.pop("end", "2021-06-30")]),
+                         "interest_expense_end": pd.to_datetime(["2026-06-30"]), **kw})
+
+
+def test_current_debt_tag_is_used():
+    df = v.compute_metrics(_debt_row(end="2025-09-30", interest_expense=[30.0]))
+    assert not df["debt_unknown"].iloc[0] and df["enterprise_value"].iloc[0] == 950
+
+
+def test_abandoned_debt_with_a_material_interest_bill_is_unknown():
+    # $6 of interest implies about $100 of debt, 10% of market cap.
+    df = v.compute_metrics(_debt_row(interest_expense=[6.0], operating_income=[50.0], d_and_a=[5.0]))
+    assert df["debt_unknown"].iloc[0]
+    assert np.isnan(df["enterprise_value"].iloc[0]) and np.isnan(df["ev_ebitda"].iloc[0])
+    assert np.isnan(df["debt_to_equity"].iloc[0]) and np.isnan(df["total_debt"].iloc[0])
+
+
+def test_abandoned_debt_with_little_interest_is_taken_as_repaid():
+    # VRTX: $1 of interest implies about $17 of debt, 1.7% of market cap.
+    df = v.compute_metrics(_debt_row(interest_expense=[1.0]))
+    assert not df["debt_unknown"].iloc[0]
+    assert df["total_debt"].iloc[0] == 0 and df["enterprise_value"].iloc[0] == 900
+
+
+def test_unknown_debt_fails_quality_except_for_financials():
+    rows = [_co(f"P{i}", total_debt_end=pd.Timestamp("2021-06-30"), as_of=pd.Timestamp("2026-06-30"),
+                interest_expense=100.0, interest_expense_end=pd.Timestamp("2026-06-30"),
+                market_cap=1000.0 * (1 + i)) for i in range(10)]
+    rows[0]["special"] = "bank"
+    out = _run(pd.DataFrame(rows))
+    assert "debt unknown" in out.loc["P1", "quality_issues"]
+    assert "debt unknown" not in out.loc["P0", "quality_issues"]

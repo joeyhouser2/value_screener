@@ -26,6 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import fundamentals, normalized, peers, screens, survival
 from .config import Settings
 
 # Metrics where a LOWER value is cheaper; the rest (yields) are cheaper when higher.
@@ -36,6 +37,8 @@ METRIC_SETS = {
     "reit": ["p_ffo", "pb"],
     None: ["pe", "ev_ebitda", "ps", "fcf_yield"],
 }
+ASSUMED_DEBT_RATE = 0.06    # turns an interest bill into the debt it roughly implies
+MATERIAL_DEBT_SHARE = 0.05  # implied debt this share of market cap is too big to ignore
 ALL_SCORED = sorted({m for ms in METRIC_SETS.values() for m in ms})
 LABELS = ("Undervalued", "Fair", "Overvalued", "Insufficient data")
 
@@ -48,17 +51,40 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Add multiples, yields, Graham number, ROE and debt/equity."""
     df = df.copy()
     num = lambda c: pd.to_numeric(df[c], errors="coerce") if c in df else pd.Series(np.nan, index=df.index)
+
+    def current(c):
+        """A flow, unless its tag stopped being filed long before the company's latest
+        period: LEN's operating income ended in 2021, so it can't pair with 2026 revenue."""
+        if f"{c}_end" not in df or "as_of" not in df:
+            return num(c)
+        lag = pd.to_datetime(df["as_of"]) - pd.to_datetime(df[f"{c}_end"])
+        return num(c).where(~(lag > pd.Timedelta(days=fundamentals.MAX_FLOW_LAG_DAYS)))
+
     mcap, ni, rev, eq = num("market_cap"), num("net_income"), num("revenue"), num("equity")
-    debt, cash = num("total_debt").fillna(0.0), num("cash").fillna(0.0)
-    da, oi = num("d_and_a"), num("operating_income")
+    # An abandoned debt tag says nothing about today (ORCL: $0 from 2022). Debt is taken as
+    # repaid unless the interest bill says otherwise; then it's unknown, not low.
+    df["debt_unknown"] = False
+    debt = num("total_debt")
+    if {"total_debt_end", "as_of"} <= set(df.columns):
+        lag = pd.to_datetime(df["as_of"]) - pd.to_datetime(df["total_debt_end"])
+        abandoned = lag > pd.Timedelta(days=fundamentals.MAX_DEBT_LAG_DAYS)
+        implied = current("interest_expense") / ASSUMED_DEBT_RATE
+        df["debt_unknown"] = abandoned & (implied >= MATERIAL_DEBT_SHARE * mcap)
+        debt = debt.mask(abandoned, 0.0).mask(df["debt_unknown"])
+    df["total_debt"] = debt
+    debt, cash = debt.fillna(0.0), num("cash").fillna(0.0)
+    # An old D&A only approximates; dropping it would cost REITs their P/FFO and label.
+    da, oi = num("d_and_a"), current("operating_income")
     ocf, capex = num("operating_cash_flow"), num("capex").fillna(0.0)
     shares, price = num("shares_outstanding"), num("price")
 
     df["pe"] = mcap / _pos(ni)
     df["ps"] = mcap / _pos(rev)
     df["pb"] = mcap / _pos(eq)
-    df["enterprise_value"] = mcap + debt - cash
-    df["ebitda"] = oi + da
+    df["enterprise_value"] = (mcap + debt - cash).where(~df["debt_unknown"])
+    # Many filers (XOM, DHI) never tag operating income: pretax + interest stands in.
+    df["ebit"] = oi.fillna(current("pretax_income") + current("interest_expense").fillna(0.0))
+    df["ebitda"] = df["ebit"] + da
     df["ev_ebitda"] = _pos(df["enterprise_value"]) / _pos(df["ebitda"])
     df["fcf"] = ocf - capex
     df["fcf_yield"] = df["fcf"] / _pos(mcap)
@@ -74,32 +100,8 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df["graham_number"] = np.sqrt(22.5 * _pos(eps) * _pos(bvps))
     df["price_to_graham"] = price / df["graham_number"]
     df["roe"] = ni / _pos(eq)
-    df["debt_to_equity"] = debt / _pos(eq)
+    df["debt_to_equity"] = debt.where(~df["debt_unknown"]) / _pos(eq)
     return df
-
-
-def _peer_pct(df: pd.DataFrame, values: pd.Series, lower_is_cheaper: bool,
-              min_peers: int) -> tuple[pd.Series, pd.Series]:
-    """Percentile (0 = cheapest) within industry, else sector, else market; plus the level."""
-    v = values.where(np.isfinite(values))
-    cheap_first = v if lower_is_cheaper else -v
-    pct = pd.Series(np.nan, index=df.index)
-    level = pd.Series(None, index=df.index, dtype=object)
-    for col, name in (("industry_group", "industry"), ("sector", "sector"), (None, "market")):
-        todo = v.notna() & pct.isna()
-        if not todo.any():
-            break
-        keys = df[col].fillna("?") if col else pd.Series("all", index=df.index)
-        counts = v.notna().groupby(keys).transform("sum")
-        ok = todo & ((counts >= min_peers) | (col is None))
-        if not ok.any():
-            continue
-        ranked = cheap_first.where(v.notna()).groupby(keys).rank(pct=True, method="average")
-        # rank(pct) is in (0, 1]; shift so the cheapest peer is ~0 and the dearest 1.
-        n = counts.astype(float)
-        scaled = ((ranked * n) - 1) / (n - 1).where(n > 1, 1)
-        pct[ok], level[ok] = scaled[ok], name
-    return pct, level
 
 
 def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
@@ -110,7 +112,7 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     for m in ALL_SCORED:
         uses = special.map(lambda s: m in METRIC_SETS.get(s, METRIC_SETS[None]))
         vals = df[m].where(uses)
-        df[f"{m}_pct"], levels[m] = _peer_pct(df, vals, m in LOWER_IS_CHEAPER, settings.min_peers)
+        df[f"{m}_pct"], levels[m] = peers.peer_pct(df, vals, m in LOWER_IS_CHEAPER, settings.min_peers)
 
     pcts = df[[f"{m}_pct" for m in ALL_SCORED]]
     df["n_metrics"] = pcts.notna().sum(axis=1)
@@ -118,15 +120,16 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     order = {"industry": 0, "sector": 1, "market": 2}
     df["peer_level"] = levels.apply(
         lambda r: max((x for x in r if isinstance(x, str)), key=order.get, default=None), axis=1)
-    df["composite_pct"], _ = _peer_pct(df, df["composite"], True, settings.min_peers)
+    df["composite_pct"], _ = peers.peer_pct(df, df["composite"], True, settings.min_peers)
 
     # Quality (value-trap guard).
-    de_pct, _ = _peer_pct(df, df["debt_to_equity"], True, settings.min_peers)
+    de_pct, _ = peers.peer_pct(df, df["debt_to_equity"], True, settings.min_peers)
     financial = special.isin(["bank", "insurer", "reit"])
     checks = {
         "loss-making": ~(df["net_income"] > 0),
         "negative FCF": ~financial & ~(df["fcf"] > 0),
         "high debt": de_pct >= settings.quality_max_de_pct,
+        "debt unknown": ~financial & df["debt_unknown"],
         "ROE <= 0": ~(df["roe"] > 0),
     }
     fails = pd.DataFrame(checks).fillna(False).astype(bool)
@@ -151,13 +154,20 @@ SCREEN_COLUMNS = [
     "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo", "dividend_yield", "peg",
     "earnings_growth", "price_to_graham", "graham_number", "roe", "debt_to_equity",
     *[f"{m}_pct" for m in ALL_SCORED],
-    "revenue", "net_income", "fcf", "ebitda", "equity", "total_debt", "cash",
+    "pe10", "ev_midcycle_ebit", "norm_fcf_yield", *[f"{m}_pct" for m in normalized.PEER_METRICS],
+    "margin_position", "industry_cycle_position", "cyclical", "median_margin", "margin_vol",
+    "loss_years", "years_history", "share_cagr", "norm_earnings", "midcycle_ebit", "norm_fcf",
+    "f_score", "f_score_n", "f_score_fy", "altman_z", "altman_model", "altman_zone",
+    "interest_coverage", "net_cash", "coverage_ok", "debt_unknown", "tangible_book", "p_tbv", "p_tbv_pct",
+    "ncav", "p_ncav", "enterprise_value", "ev_sales", "ev_sales_pct", "deep_value", "deep_value_reasons",
+    "cyclical_trough", "cyclical_trough_reasons", "turning", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date", "spin_off_date",
+    "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
     "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
 ]
 
 
 def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
-                 settings: Settings) -> pd.DataFrame:
+                 settings: Settings, history_df=None, trend_df=None) -> pd.DataFrame:
     """Pure core: join the phase outputs, compute metrics, score and label."""
     df = (universe_df[["ticker", "name", "exchange", "cik"]]
           .merge(industry_df, on="ticker", how="left")
@@ -165,17 +175,21 @@ def build_screen(universe_df, industry_df, fundamentals_df, prices_df,
           .merge(prices_df[["ticker", "price", "price_date", "market_cap"]], on="ticker", how="left"))
     if "stale" not in df:
         df["stale"] = True
-    df = score(compute_metrics(df), settings)
+    df = normalized.add_normalized(score(compute_metrics(df), settings), history_df, settings)
+    df = survival.add_survival(df, history_df, settings)
+    if trend_df is not None and len(trend_df):
+        df = df.merge(trend_df, on="ticker", how="left")
+    df = screens.add_screens(df, settings)
     order = {lab: i for i, lab in enumerate(LABELS)}
     df = df.sort_values(["label", "composite_pct"], key=lambda s: s.map(order) if s.name == "label" else s)
     return df.reindex(columns=SCREEN_COLUMNS).reset_index(drop=True)
 
 
 def refresh(settings: Settings, universe_df, industry_df, fundamentals_df, prices_df,
-            *, verbose: bool = True) -> pd.DataFrame:
+            history_df=None, trend_df=None, *, verbose: bool = True) -> pd.DataFrame:
     import datetime as dt
 
-    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings)
+    df = build_screen(universe_df, industry_df, fundamentals_df, prices_df, settings, history_df, trend_df)
     df.to_parquet(settings.data_dir / "screen.parquet", index=False)
     hist = settings.data_dir / "history"
     hist.mkdir(parents=True, exist_ok=True)

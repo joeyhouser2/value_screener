@@ -122,3 +122,20 @@ def test_yahoo_fallback_stops_after_repeated_refusals(tmp_path, monkeypatch):
     out = prices.yahoo_market_caps(Settings(data_dir=tmp_path), [f"T{i}" for i in range(20)],
                                    pause=0, max_failures=3)
     assert out == {} and len(calls) == 3
+
+
+class _OneClose:
+    def last_close(self, tickers):
+        return pd.DataFrame({"ticker": tickers, "price": 10.0, "price_date": dt.date(2026, 11, 2)})
+
+
+def test_first_run_of_the_day_keeps_numeric_market_caps(tmp_path):
+    # No close cache yet: an empty frame joins the fresh closes, and values only turn
+    # numeric again after a parquet round trip. Later columns divide by market cap.
+    s = Settings(data_dir=tmp_path)
+    uni = pd.DataFrame({"ticker": ["A", "B"]})
+    fund = pd.DataFrame({"ticker": ["A", "B"], "shares_outstanding": [5.0, None]})
+    out = prices.refresh(s, uni, fund, _OneClose(), reference_caps=lambda _: {},
+                    market_caps=lambda *_: {}, verbose=False)
+    assert out["price"].dtype == float and out["market_cap"].dtype == float
+    assert out.set_index("ticker").loc["A", "market_cap"] == 50
