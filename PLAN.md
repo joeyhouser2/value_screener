@@ -63,7 +63,11 @@ Labels:
 
 ## Phase 8 — Automation & checks
 - [x] Windows Task Scheduler script `scripts/weekly_refresh.ps1`
-- [ ] Sanity tests: spot-check 10 well-known tickers' P/E against Yahoo (within ~10%)
+- [x] Sanity tests: spot-check 10 well-known tickers' P/E against Yahoo (within ~10%)
+      `value-screener sanity` (tickers and tolerance in settings.yaml). Nov 9 2026: 9 of 10
+      within 5%. XOM +24.5% on net income: its Q3 10-Q was filed hours after the Nov 2 facts
+      fetch (JPM, CAT and BRK's too), while Yahoo uses the earlier press release. On Yahoo's net
+      income it would be 17.0 against 16.9. A 10-Q lags by up to a week plus the cache's age
 - [x] Coverage report: % of universe with each metric, by industry
 - [x] Snapshot each run to `data/history/` so labels can be tracked over time
 

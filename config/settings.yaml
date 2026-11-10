@@ -23,6 +23,10 @@ trend_retries: 2            # extra passes over tickers Yahoo failed on
 trend_retry_pause: 30.0     # seconds before each extra pass
 trend_batch_timeout: 120.0  # give up on a batch after this; a normal one takes about 7s
 
+# Sanity check: these tickers' P/E against Yahoo's trailing P/E (value-screener sanity)
+sanity_tickers: [AAPL, MSFT, GOOGL, JPM, XOM, KO, JNJ, WMT, CAT, HD]
+sanity_pe_tol: 0.10
+
 # Forward tracking
 track_cohort_days: 91       # start a new tracked cohort this often
 track_baseline_pct: 0.10    # cheapest share by earnings yield, tracked as the dumb alternative

@@ -26,6 +26,8 @@ class Settings:
     trend_retries: int = 2
     trend_retry_pause: float = 30.0
     trend_batch_timeout: float = 120.0
+    sanity_tickers: tuple[str, ...] = ("AAPL", "MSFT", "GOOGL", "JPM", "XOM", "KO", "JNJ", "WMT", "CAT", "HD")
+    sanity_pe_tol: float = 0.10
     track_cohort_days: int = 91
     track_baseline_pct: float = 0.10
     backtest_start: str = "2012-01-01"
@@ -89,7 +91,7 @@ def load_settings(path: Path | None = None, **overrides) -> Settings:
         raw["sec_user_agent"] = os.environ["SEC_USER_AGENT"]
     known = {f.name for f in fields(Settings)}
     kwargs = {k: v for k, v in raw.items() if k in known}
-    for k in ("exchanges", "backtest_cost_caps", "backtest_cost_bps"):
+    for k in ("exchanges", "backtest_cost_caps", "backtest_cost_bps", "sanity_tickers"):
         if k in kwargs:
             kwargs[k] = tuple(kwargs[k])
     return replace(Settings(**kwargs), **overrides)

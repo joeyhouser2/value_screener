@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import errors, fundamentals, history, industry, prices, screens, sec, track, trend, universe, valuation
+from . import errors, fundamentals, history, industry, prices, sanity, screens, sec, track, trend, universe, valuation
 from .backtest import panel, returns, survivorship
 from .config import REPO_ROOT, load_settings
 
@@ -231,6 +231,17 @@ def coverage_report(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([total, by.sort_values("stocks", ascending=False)])
 
 
+def cmd_sanity(args) -> int:
+    s = load_settings()
+    rep = sanity.run(s, valuation.load(s))
+    show = rep.copy()
+    show["pe"], show["yahoo_pe"] = show["pe"].round(1), pd.to_numeric(show["yahoo_pe"]).round(1)
+    show["diff"] = show["diff"].map(lambda v: f"{v:+.1%}" if pd.notna(v) else "")
+    print(show.to_string(index=False))
+    print(f"{int(rep['ok'].sum())} of {len(rep)} within {s.sanity_pe_tol:.0%} of Yahoo's trailing P/E")
+    return 0 if rep["ok"].all() else 1
+
+
 def cmd_coverage(args) -> int:
     rep = coverage_report(valuation.load(load_settings()))
     pct = rep.drop(columns="stocks").map(lambda v: f"{v:.0%}")
@@ -280,6 +291,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sv = sub.add_parser("survivorship", help="Count companies listed at each panel date but missing from it.")
     sv.set_defaults(func=cmd_survivorship)
+
+    sn = sub.add_parser("sanity", help="Spot-check well-known tickers' P/E against Yahoo.")
+    sn.set_defaults(func=cmd_sanity)
 
     cv = sub.add_parser("coverage",help="Percent of stocks with each metric, by industry.")
     cv.set_defaults(func=cmd_coverage)
