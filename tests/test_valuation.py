@@ -180,3 +180,26 @@ def test_unknown_debt_fails_quality_except_for_financials():
     out = _run(pd.DataFrame(rows))
     assert "debt unknown" in out.loc["P1", "quality_issues"]
     assert "debt unknown" not in out.loc["P0", "quality_issues"]
+
+
+def test_each_insufficient_stock_gets_one_plain_reason():
+    rows = [  # name, us_gaap, annual_form, as_of, short_history, stale, market_cap, net_income
+        ("No Facts", None, None, None, False, True, 1e9, None),
+        ("Rocket Acquisition Corp", True, "10-K", None, False, True, 1e8, None),
+        ("ASML Holding", True, "20-F/A", None, False, True, 5e11, None),            # an amendment
+        ("New Co", True, None, None, True, True, 1e9, None),
+        ("Tanger Inc", True, "10-K", None, False, True, 4e9, None),
+        ("Old Co", True, "10-K", "2020-12-31", False, True, 1e9, 5.0),
+        ("No Cap Co", True, "10-K", "2026-09-30", False, False, None, 5.0),
+        ("Biotech", True, "10-K", "2026-09-30", False, False, 1e9, -5.0),
+        ("Mortgage REIT", True, "10-K", "2026-09-30", False, False, 1e9, 5.0),
+        ("Fine Co", True, "10-K", "2026-09-30", False, False, 1e9, 5.0),
+    ]
+    df = pd.DataFrame(rows, columns=["name", "us_gaap", "annual_form", "as_of", "short_history", "stale",
+                                     "market_cap", "net_income"])
+    df["label"] = ["Insufficient data"] * 9 + ["Fair"]
+    got = v.insufficient_reason(df, Settings()).tolist()
+    assert got == ["No SEC financial data", "SPAC (blank-check company)", "Foreign filer (20-F / 40-F)",
+                   "New registrant: under a year of filings", "No 12-month income figures in SEC data",
+                   "Financials over 15 months old", "No trustworthy market cap",
+                   "Loss-making: earnings ratios don't apply", "Too few comparable metrics", ""]

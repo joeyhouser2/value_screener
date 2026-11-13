@@ -357,3 +357,4 @@ def test_a_bankruptcy_fresh_start_isnt_chained():
             r("2026-01-01", "2026-03-31", -10), r("2026-04-01", "2026-06-30", -10)]
     assert f.fresh_start(rows) and not f.fresh_start(FY_CHANGE)
     assert f.flow_value(rows)["src"] != "chained"
+
