@@ -370,6 +370,16 @@ Open decisions
 - Negative earnings make P/E meaningless -> treat as missing, not as "cheap"
 - Share-count changes (splits/buybacks) -> use latest `dei:EntityCommonStockSharesOutstanding`
 - yfinance is unofficial and may break; that's why prices are behind an interface
+- Fiscal-year changes (10-KT) leave stub periods, so no four quarters line up for up to a
+  year: back-to-back periods are chained and scaled to 12 months (`src` "chained": Greif,
+  Ferguson, FedEx). A bankruptcy's predecessor/successor split isn't chained, as its stub holds
+  the reorganization gain (XBP). Found Nov 2026 from "Insufficient data" in the dashboard
+- New registrants (second-step conversions, holding-company reorganizations) start with no
+  history: link them in `config/cik_predecessors.yaml` (XOM, GOOGL, CLBK)
+- Not fixable from SEC data: Tanger (SKT) has no 10-K income facts in companyfacts under
+  either its own or its operating partnership's CIK
+- Not handled yet: 10-K filers reporting in another currency (Enbridge, Canadian Pacific
+  in CAD) have no USD facts, so they're "Insufficient data"
 
 ## Not in scope (yet)
 DCF models, analyst estimates, intraday data, options.

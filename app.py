@@ -32,6 +32,24 @@ SCREEN_COLS = ["deep_value_reasons", "cyclical_trough_reasons", "turning", "pe10
                "margin_position", "industry_cycle_position", "years_history", "f_score", "f_score_n",
                "altman_zone", "interest_coverage", "share_cagr", "off_52w_high", "momentum_12_1", "price_vs_200d"]
 
+# Why a cell is often blank: mostly the figure doesn't apply, which isn't missing data.
+BLANK_HELP = {
+    "pe": "Price / earnings. Blank when earnings are zero or negative.",
+    "ev_ebitda": "Blank when EBITDA is negative or can't be computed from the filings.",
+    "p_ffo": "Price / funds from operations (earnings + depreciation). Ranked among REITs only. Blank when negative.",
+    "pe10": "Price / average earnings over up to 10 years. Blank with under 3 years of filings or average losses.",
+    "p_ncav": "Price / (current assets - all liabilities). Blank when that's negative, as it is for most companies.",
+    "ev_sales": "Blank for banks, insurers and REITs, whose revenue isn't comparable, or when EV or revenue "
+                "is negative or missing.",
+    "interest_coverage": "EBIT / interest. Blank for banks and insurers, and when there's no interest expense.",
+    "altman_zone": "Bankruptcy risk score. Blank for banks, insurers and REITs, where it doesn't apply, or when "
+                   "a figure it needs is missing.",
+    "margin_position": "Margin against its own range, 0 = low. Blank without enough years of history.",
+    "deep_value_reasons": "Gates passed and checks failed. Blank: not cheap enough on P/TBV, P/NCAV or EV/sales.",
+    "cyclical_trough_reasons": "Blank: not a cyclical at a margin low, or not cheap on through-the-cycle earnings.",
+    "quality_issues": "Blank means no quality issue was found.",
+}
+
 
 @st.cache_data(show_spinner=False)
 def load_screen(mtime: float) -> pd.DataFrame:
@@ -83,8 +101,10 @@ with st.sidebar:
     groups = st.multiselect("Industry", sorted(df["industry_group"].dropna().unique()))
     exchanges = st.multiselect("Exchange", sorted(df["exchange"].dropna().unique()))
     caps = df["market_cap_b"].dropna()
-    lo, hi = st.slider("Market cap ($B)", 0.0, float(np.ceil(caps.max())) if len(caps) else 1.0,
-                       (0.3, float(np.ceil(caps.max())) if len(caps) else 1.0), step=0.1)
+    top = float(np.ceil(caps.max())) if len(caps) else 1.0
+    # A screen has its own size floor (screen_min_market_cap), so it starts from everything it passed.
+    lo, hi = st.slider("Market cap ($B)", 0.0, top, (0.0 if screen_col else 0.3, top), step=0.05,
+                       key=f"cap_{screen}")
     quality = st.radio("Quality filter", ["Any", "Pass", "Fail"], horizontal=True)
     search = st.text_input("Ticker / name contains")
 
@@ -115,8 +135,24 @@ for col, (name, count) in zip(st.columns(len(tiles)), tiles):
 st.subheader(f"{len(view):,} stocks")
 if screen_col:
     st.caption(f"{int(df[screen_col].sum())} stocks pass {screen}; the filters show {len(view)}. A starting point "
-               "for reading filings: the thresholds aren't validated yet, and nothing here tells a cyclical "
-               "low from a permanent decline.")
+               "for reading filings, not a buy list: in the 2017-2026 backtest (docs/validation.md) neither screen "
+               "beat the S&P 500 after costs, and nothing here tells a cyclical low from a permanent decline. "
+               "Blank cells mean a figure doesn't apply, not that it's missing: hover a column name to see why.")
+
+insufficient = df[df["label"] == "Insufficient data"]
+if len(insufficient) and (not labels or "Insufficient data" in labels):
+    no_sec = insufficient["as_of"].isna()
+    losing = ~no_sec & (insufficient["net_income"] <= 0)
+    stale = ~no_sec & ~losing & insufficient["stale"].fillna(False).astype(bool)
+    with st.expander(f"Why {len(insufficient):,} stocks are 'Insufficient data'"):
+        st.markdown(
+            f"- **{int(no_sec.sum()):,} have no usable SEC financials**: foreign companies filing 20-F or 40-F "
+            "reports (often IFRS, which isn't read), new listings without a full year of filings, and SPACs.\n"
+            f"- **{int(losing.sum()):,} lose money**: P/E, EV/EBITDA and FCF yield don't apply to losses, so "
+            f"fewer than {SETTINGS.min_metrics} metrics are left to compare with peers (biotech, crypto miners).\n"
+            f"- **{int(stale.sum()):,} have financials over {SETTINGS.stale_months} months old**.\n"
+            f"- **{int((~no_sec & ~losing & ~stale).sum()):,} others** have fewer than {SETTINGS.min_metrics} "
+            "metrics for other reasons, such as REITs with negative book value.")
 table_cols = TABLE_COLS
 if screen_col:
     at = TABLE_COLS.index("market_cap_b") + 1
@@ -124,13 +160,19 @@ if screen_col:
 st.dataframe(
     view.reindex(columns=table_cols), width="stretch", height=480, hide_index=True,
     column_config={
-        **{c: st.column_config.NumberColumn(format="%.1f") for c in ("pe10", "p_tbv", "p_ncav", "ev_sales", "interest_coverage")},
-        **{c: st.column_config.NumberColumn(format="%.2f") for c in
+        **{c: st.column_config.NumberColumn(format="%.1f", help=BLANK_HELP.get(c))
+           for c in ("pe10", "p_tbv", "p_ncav", "ev_sales", "interest_coverage")},
+        **{c: st.column_config.NumberColumn(format="%.2f", help=BLANK_HELP.get(c)) for c in
            ("margin_position", "industry_cycle_position", "share_cagr", "off_52w_high", "momentum_12_1", "price_vs_200d")},
+        **{c: st.column_config.TextColumn(help=h) for c, h in BLANK_HELP.items()
+           if c in ("deep_value_reasons", "cyclical_trough_reasons", "altman_zone", "quality_issues")},
+        "p_ffo_pct": st.column_config.NumberColumn(format="%.2f", help=BLANK_HELP["p_ffo"]),
+        "pe_pct": st.column_config.NumberColumn(format="%.2f", help=BLANK_HELP["pe"]),
         "composite_pct": st.column_config.ProgressColumn("Industry pct", format="%.2f",
                                                          min_value=0, max_value=1),
         "market_cap_b": st.column_config.NumberColumn("Mkt cap $B", format="%.1f"),
-        **{c: st.column_config.NumberColumn(format="%.1f") for c in ("pe", "ps", "pb", "ev_ebitda", "p_ffo")},
+        **{c: st.column_config.NumberColumn(format="%.1f", help=BLANK_HELP.get(c))
+           for c in ("pe", "ps", "pb", "ev_ebitda", "p_ffo")},
         **{c: st.column_config.NumberColumn(format="%.3f") for c in
            ("fcf_yield", "dividend_yield", "roe", "debt_to_equity")},
     })

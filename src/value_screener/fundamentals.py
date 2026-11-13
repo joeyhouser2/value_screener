@@ -45,6 +45,8 @@ MAX_FLOW_LAG_DAYS = 120     # about one missed quarterly filing
 MAX_DEBT_LAG_DAYS = 400     # an annual-only debt tag is fine; older means it was abandoned
 MAX_PARTS_LAG_DAYS = 120
 MAX_IMPLIED_RATE = 0.25     # interest / debt above this means some of the debt isn't tagged
+STUB_MIN_DAYS = 28          # a fiscal-year change can leave a one-month stub period
+CHAIN_DAYS = (300, 430)     # chained periods this long can stand in for 12 months, scaled
 TTM_CONCEPTS = frozenset(ROW_FIELDS) | {"debt_total", "debt_noncurrent", "debt_current",
                                         "notes_payable", "short_term_borrowings"}
 
@@ -171,16 +173,99 @@ def twelve_months(quarters: pd.Series, annual: pd.Series, end: pd.Timestamp):
     return None, None
 
 
+def periods(rows) -> pd.DataFrame:
+    """Every reported or year-to-date-derived period of 28-100 days: start, end, val.
+
+    Unlike :func:`quarters_and_annuals`, keeps the short stubs a fiscal-year change leaves
+    (Greif's Aug-Sep 2025 in its 10-KT; Ferguson's Nov-Dec 2025, its transition period less
+    the quarter before it)."""
+    df = _frame(rows).dropna(subset=["start"])
+    if df.empty:
+        return pd.DataFrame(columns=["start", "end", "val"])
+    df = df.sort_values("filed").drop_duplicates(["start", "end"], keep="last")
+    df["days"] = (df["end"] - df["start"]).dt.days
+    out = [df.loc[df["days"].between(STUB_MIN_DAYS, 100), ["start", "end", "val"]]]
+    for _, g in df.groupby("start"):
+        g = g.sort_values("end")
+        for a, b in zip(g.itertuples(), g.iloc[1:].itertuples()):
+            if STUB_MIN_DAYS <= (b.end - a.end).days <= 100:
+                out.append(pd.DataFrame({"start": [a.end + pd.Timedelta(days=1)], "end": [b.end],
+                                         "val": [b.val - a.val]}))
+    p = pd.concat(out, ignore_index=True)
+    return p.drop_duplicates(["start", "end"], keep="first").sort_values("end").reset_index(drop=True)
+
+
+def chained_months(p: pd.DataFrame, end: pd.Timestamp):
+    """(value scaled to 12 months, days covered) from back-to-back periods ending at ``end``.
+
+    For a fiscal-year change, when no four quarters line up: the chain of contiguous periods
+    whose length is nearest a year, within ``CHAIN_DAYS``, scaled to 365 days. (None, None)
+    when there's no such chain, so a gap in the filings never gets bridged."""
+    best = None
+
+    def walk(cur_start, total_val, first_end, pieces):
+        nonlocal best
+        days = (first_end - cur_start).days + 1
+        if CHAIN_DAYS[0] <= days <= CHAIN_DAYS[1]:
+            key = (abs(days - 365), pieces)
+            if best is None or key < best[0]:
+                best = (key, total_val * 365 / days, days)
+        if days >= CHAIN_DAYS[1] or pieces >= 6:
+            return
+        prev = p[(p["end"] >= cur_start - pd.Timedelta(days=4)) & (p["end"] < cur_start)]
+        for r in prev.itertuples():
+            walk(r.start, total_val + r.val, first_end, pieces + 1)
+
+    for r in p[p["end"] == end].itertuples():
+        walk(r.start, r.val, end, 1)
+    return (best[1], best[2]) if best else (None, None)
+
+
+def fresh_start(rows) -> bool:
+    """Whether an annual report splits its year into back-to-back partial periods: the
+    predecessor and successor of a bankruptcy's fresh-start accounting (XBP Global, July 2025,
+    whose one-month predecessor stub holds a $1.48B reorganization gain). Together the two make
+    up one ordinary year: Jan-Jul plus Aug-Dec. A fiscal-year change's transition period
+    doesn't, as it ends on a new year-end (Greif: a 9-month year-to-date and a 2-month stub)."""
+    df = _frame(rows).dropna(subset=["start"])
+    df = df[df["form"].str.startswith("10-K", na=False)]
+    df = df.assign(days=(df["end"] - df["start"]).dt.days)
+    part = df[(df["days"] >= STUB_MIN_DAYS) & ~df["days"].between(80, 100) & ~df["days"].between(350, 380)]
+    for _, g in part.groupby("accn"):
+        for a in g.itertuples():
+            # Skydance's successor starts Aug 8, two days after its predecessor ends.
+            after = g[(g["start"] > a.end) & (g["start"] <= a.end + pd.Timedelta(days=4))]
+            if ((after["end"] - a.start).dt.days.between(350, 380)).any():
+                return True
+    return False
+
+
 def flow_value(rows) -> dict:
-    """Latest TTM (or annual) value, its source and end, plus the year-earlier value."""
+    """Latest TTM (or annual) value, its source and end, plus the year-earlier value.
+
+    When that falls behind the latest quarter reported, a fiscal-year change is usually why:
+    the newest periods are then chained and scaled to a year (``src`` = ``"chained"``)."""
     q, annual = quarters_and_annuals(rows)
     ends = sorted(set(q.index) | set(annual.index), reverse=True)
+    out = {"val": None, "src": None, "end": None, "prev": None}
     for end in ends:
         val, src = twelve_months(q, annual, end)
         if val is not None:
             prev, _ = twelve_months(q, annual, end - pd.DateOffset(years=1))
-            return {"val": val, "src": src, "end": end, "prev": prev}
-    return {"val": None, "src": None, "end": None, "prev": None}
+            out = {"val": val, "src": src, "end": end, "prev": prev}
+            break
+    p = periods(rows)
+    if len(p) and (out["end"] is None or p["end"].max() > out["end"]) and not fresh_start(rows):
+        newest = p["end"].max()
+        val, _ = chained_months(p, newest)
+        if val is not None:
+            year_ago = newest - pd.DateOffset(years=1)
+            prev, _ = twelve_months(q, annual, year_ago)
+            if prev is None:
+                near = p[(p["end"] - year_ago).abs() <= pd.Timedelta(days=15)]["end"]
+                prev = chained_months(p, near.iloc[-1])[0] if len(near) else None
+            out = {"val": val, "src": "chained", "end": newest, "prev": prev}
+    return out
 
 
 # --- instants ---------------------------------------------------------------- #

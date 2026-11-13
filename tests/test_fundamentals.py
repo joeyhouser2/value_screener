@@ -314,3 +314,46 @@ def test_revenue_abandoned_long_ago_is_missing_not_old():
     row = f.extract(slim, TAGS, today=dt.date(2026, 10, 31))
     assert row["revenue"] is None and row["revenue_prev"] is None and row["revenue_end"] is None
     assert row["net_income"] == 4 and row["as_of"] == pd.Timestamp("2026-09-30") and not row["stale"]
+
+
+# Greif-like fiscal-year change: Nov-Oct years, then a 10-KT to Sep 30 with a 2-month stub,
+# then Oct-Sep quarters. No four quarters line up after the change.
+FY_CHANGE = [
+    r("2023-11-01", "2024-10-31", 120, form="10-K", accn="k24"),
+    r("2024-11-01", "2025-01-31", 10), r("2025-02-01", "2025-04-30", 10),
+    r("2024-11-01", "2025-07-31", 30), r("2025-05-01", "2025-07-31", 10),
+    r("2024-11-01", "2025-09-30", 50, form="10-KT", accn="kt"),
+    r("2025-08-01", "2025-09-30", 20, form="10-KT", accn="kt"),       # the stub
+    r("2023-11-01", "2024-10-31", 120, form="10-KT", accn="kt"),
+    r("2025-10-01", "2025-12-31", 15), r("2026-01-01", "2026-03-31", 15),
+]
+
+
+def test_a_fiscal_year_change_chains_the_stub_and_scales_to_a_year():
+    v = f.flow_value(FY_CHANGE)
+    assert v["src"] == "chained" and v["end"] == pd.Timestamp("2026-03-31")
+    days = (pd.Timestamp("2026-03-31") - pd.Timestamp("2025-05-01")).days + 1   # May-Jul, stub, 2 quarters
+    assert v["val"] == pytest.approx((10 + 20 + 15 + 15) * 365 / days)
+
+
+def test_the_chain_never_bridges_a_gap():
+    rows = [x for x in FY_CHANGE if x[:2] != ["2025-08-01", "2025-09-30"] and x[1] != "2025-09-30"]
+    v = f.flow_value(rows)
+    assert v["src"] != "chained" and v["end"] == pd.Timestamp("2024-10-31")
+
+
+def test_regular_quarters_are_never_chained():
+    assert f.flow_value(INCOME)["src"] == "ttm"
+    assert f.flow_value(CASHFLOW)["src"] == "ttm"
+
+
+def test_a_bankruptcy_fresh_start_isnt_chained():
+    # XBP-like: the 10-K splits calendar 2025 into a predecessor Jan-Jul (a one-month stub
+    # holding a huge reorganization gain) and a successor Aug-Dec.
+    rows = [r("2025-01-01", "2025-03-31", -10), r("2025-04-01", "2025-06-30", -10),
+            r("2025-07-01", "2025-07-31", 1500), r("2025-08-01", "2025-09-30", -20),
+            r("2025-01-01", "2025-07-31", 1480, form="10-K", accn="k"),
+            r("2025-08-01", "2025-12-31", -40, form="10-K", accn="k"),
+            r("2026-01-01", "2026-03-31", -10), r("2026-04-01", "2026-06-30", -10)]
+    assert f.fresh_start(rows) and not f.fresh_start(FY_CHANGE)
+    assert f.flow_value(rows)["src"] != "chained"
