@@ -22,7 +22,7 @@ SETTINGS = load_settings()
 METRIC_LABELS = {"pe": "P/E", "ps": "P/S", "pb": "P/B", "ev_ebitda": "EV/EBITDA",
                  "fcf_yield": "FCF yield", "p_ffo": "P/FFO", "dividend_yield": "Dividend yield",
                  "price_to_graham": "Price / Graham number"}
-TABLE_COLS = ["ticker", "name", "industry_group", "exchange", "label", "composite_pct",
+TABLE_COLS = ["ticker", "name", "industry_group", "exchange", "label", "insufficient_reason", "composite_pct",
               "market_cap_b", "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo",
               "dividend_yield", "roe", "debt_to_equity", "pe_pct", "ps_pct", "pb_pct",
               "ev_ebitda_pct", "fcf_yield_pct", "p_ffo_pct", "quality_pass", "quality_issues",
@@ -49,6 +49,42 @@ BLANK_HELP = {
     "cyclical_trough_reasons": "Blank: not a cyclical at a margin low, or not cheap on through-the-cycle earnings.",
     "quality_issues": "Blank means no quality issue was found.",
 }
+
+
+# What each "Insufficient data" reason (valuation.REASONS) means, and whether it can change.
+REASON_HELP = {
+    "No SEC financial data": "No XBRL financials at SEC at all: mostly ADRs and companies without a CIK.",
+    "Foreign filer (20-F / 40-F)": "Files annual reports as a foreign company, usually under IFRS or in "
+                                   "another currency, which this screen doesn't read.",
+    "SPAC (blank-check company)": "A shell holding cash in trust until it buys a business: there's nothing "
+                                  "to value yet.",
+    "New registrant: under a year of filings": "Recent IPO or spin-off, or a new holding company. It fills "
+                                               "in once a full year is filed.",
+    "No 12-month income figures in SEC data": "Has filings, but no full-year revenue or earnings in US "
+                                              "dollars: reports in another currency (Enbridge, Canadian "
+                                              "Pacific), or annual figures missing from SEC's data (Tanger).",
+    "Financials over": "The latest figures are too old to compare, usually a company that stopped filing.",
+    "No trustworthy market cap": "The SEC share count looks wrong (multi-class or stale), and neither Nasdaq "
+                                 "nor a recent snapshot gives a cap.",
+    "Loss-making: earnings ratios don't apply": "P/E, EV/EBITDA and FCF yield are meaningless on losses, so "
+                                                "too few ratios are left (biotech, crypto miners).",
+    "Too few comparable metrics": "Profitable, but most ratios can't be computed: negative book value, or "
+                                  "mortgage REITs, which have no depreciation for P/FFO.",
+}
+
+
+def reason_help(reason: str) -> str:
+    return next((h for k, h in REASON_HELP.items() if reason.startswith(k)), "")
+
+
+def reason_table(insufficient: pd.DataFrame) -> pd.DataFrame:
+    """Reasons with their count, meaning and largest examples."""
+    rows = []
+    for reason, g in insufficient.groupby("insufficient_reason"):
+        top = g.sort_values("market_cap", ascending=False)["ticker"].head(4)
+        rows.append({"reason": reason, "stocks": len(g), "means": reason_help(reason),
+                     "largest": ", ".join(top)})
+    return pd.DataFrame(rows).sort_values("stocks", ascending=False)
 
 
 @st.cache_data(show_spinner=False)
@@ -141,18 +177,15 @@ if screen_col:
 
 insufficient = df[df["label"] == "Insufficient data"]
 if len(insufficient) and (not labels or "Insufficient data" in labels):
-    no_sec = insufficient["as_of"].isna()
-    losing = ~no_sec & (insufficient["net_income"] <= 0)
-    stale = ~no_sec & ~losing & insufficient["stale"].fillna(False).astype(bool)
     with st.expander(f"Why {len(insufficient):,} stocks are 'Insufficient data'"):
-        st.markdown(
-            f"- **{int(no_sec.sum()):,} have no usable SEC financials**: foreign companies filing 20-F or 40-F "
-            "reports (often IFRS, which isn't read), new listings without a full year of filings, and SPACs.\n"
-            f"- **{int(losing.sum()):,} lose money**: P/E, EV/EBITDA and FCF yield don't apply to losses, so "
-            f"fewer than {SETTINGS.min_metrics} metrics are left to compare with peers (biotech, crypto miners).\n"
-            f"- **{int(stale.sum()):,} have financials over {SETTINGS.stale_months} months old**.\n"
-            f"- **{int((~no_sec & ~losing & ~stale).sum()):,} others** have fewer than {SETTINGS.min_metrics} "
-            "metrics for other reasons, such as REITs with negative book value.")
+        st.caption("A stock needs a market cap, financials from the last "
+                   f"{SETTINGS.stale_months} months, and at least {SETTINGS.min_metrics} valuation ratios to "
+                   "compare with its industry. Most of these aren't errors: the figures don't exist in SEC's "
+                   "US GAAP data, or a ratio doesn't apply. Each stock's reason is in the table's "
+                   "'Why insufficient' column.")
+        st.dataframe(reason_table(insufficient), width="stretch", hide_index=True,
+                     column_config={"stocks": st.column_config.NumberColumn(format="%d"),
+                                    "means": st.column_config.TextColumn("What it means", width="large")})
 table_cols = TABLE_COLS
 if screen_col:
     at = TABLE_COLS.index("market_cap_b") + 1
@@ -171,6 +204,8 @@ st.dataframe(
         "composite_pct": st.column_config.ProgressColumn("Industry pct", format="%.2f",
                                                          min_value=0, max_value=1),
         "market_cap_b": st.column_config.NumberColumn("Mkt cap $B", format="%.1f"),
+        "insufficient_reason": st.column_config.TextColumn(
+            "Why insufficient", help="Why the stock can't be compared with its industry. Blank when it can."),
         **{c: st.column_config.NumberColumn(format="%.1f", help=BLANK_HELP.get(c))
            for c in ("pe", "ps", "pb", "ev_ebitda", "p_ffo")},
         **{c: st.column_config.NumberColumn(format="%.3f") for c in
@@ -208,6 +243,8 @@ else:
 
 # --- the selected stock's history ---------------------------------------------- #
 st.subheader(f"{pick}: last {SETTINGS.normalized_window} fiscal years")
+if row["label"] == "Insufficient data" and row.get("insufficient_reason"):
+    st.info(f"{pick} is 'Insufficient data': {row['insufficient_reason']}. {reason_help(row['insufficient_reason'])}")
 for name, col in screens.SCREENS.items():
     reasons = row[f"{col}_reasons"]
     st.caption(f"{name}: " + (f"passes ({reasons})" if row[col] else f"near miss ({reasons})" if reasons else "didn't pass any entry test"))

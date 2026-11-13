@@ -104,6 +104,46 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# Why a stock is "Insufficient data", first match wins. Most aren't data errors: the
+# figures don't exist in SEC's US GAAP data, or a valuation ratio doesn't apply.
+REASONS = {
+    "no_sec": "No SEC financial data",
+    "foreign": "Foreign filer (20-F / 40-F)",
+    "spac": "SPAC (blank-check company)",
+    "new": "New registrant: under a year of filings",
+    "no_income": "No 12-month income figures in SEC data",
+    "stale": "Financials over {stale_months} months old",
+    "no_cap": "No trustworthy market cap",
+    "loss": "Loss-making: earnings ratios don't apply",
+    "few": "Too few comparable metrics",
+}
+# Blank-check names; the Phase 10c survivorship module keeps its own copy.
+SPAC_NAME = r"acquisition (?:corp|co\b|company|ltd|inc)|merger (?:corp|sub)|tontine|hedosophia|blank check"
+
+
+def insufficient_reason(df: pd.DataFrame, settings: Settings) -> pd.Series:
+    """One plain reason per "Insufficient data" stock (blank for the others)."""
+    col = lambda c: df[c] if c in df else pd.Series(pd.NA, index=df.index, dtype=object)
+    us_gaap, form = col("us_gaap"), col("annual_form").fillna("")
+    no_income = pd.to_datetime(col("as_of"), errors="coerce").isna()
+    steps = [
+        ("no_sec", us_gaap.isna()),
+        ("spac", col("name").fillna("").astype(str).str.contains(SPAC_NAME, case=False, regex=True)),
+        ("foreign", form.isin(["20-F", "40-F"]) | us_gaap.eq(False)),
+        ("new", no_income & col("short_history").fillna(False).astype(bool)),
+        ("no_income", no_income),
+        ("stale", df["stale"].fillna(True).astype(bool)),
+        ("no_cap", df["market_cap"].isna()),
+        ("loss", ~(pd.to_numeric(df["net_income"], errors="coerce") > 0)),
+        ("few", pd.Series(True, index=df.index)),
+    ]
+    out = pd.Series("", index=df.index, dtype=object)
+    for key, hit in steps:
+        out = out.mask((out == "") & hit.fillna(False).astype(bool),
+                       REASONS[key].format(stale_months=settings.stale_months))
+    return out.where(df["label"] == "Insufficient data", "")
+
+
 def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
     """Percentiles per metric, composite, quality filter and labels."""
     df = df.copy()
@@ -143,12 +183,13 @@ def score(df: pd.DataFrame, settings: Settings) -> pd.DataFrame:
         [insufficient, cheap & df["quality_pass"], df["composite_pct"] >= settings.overvalued_pct],
         ["Insufficient data", "Undervalued", "Overvalued"], default="Fair")
     df["label"] = label
+    df["insufficient_reason"] = insufficient_reason(df, settings)
     df["cheap_fails_quality"] = ~insufficient & cheap & ~df["quality_pass"]
     return df
 
 
 SCREEN_COLUMNS = [
-    "ticker", "name", "exchange", "industry_group", "sector", "special", "label",
+    "ticker", "name", "exchange", "industry_group", "sector", "special", "label", "insufficient_reason",
     "composite_pct", "composite", "n_metrics", "peer_level", "quality_pass", "quality_issues",
     "cheap_fails_quality", "price", "price_date", "market_cap",
     "pe", "ps", "pb", "ev_ebitda", "fcf_yield", "p_ffo", "dividend_yield", "peg",
@@ -162,7 +203,7 @@ SCREEN_COLUMNS = [
     "ncav", "p_ncav", "enterprise_value", "ev_sales", "ev_sales_pct", "deep_value", "deep_value_reasons",
     "cyclical_trough", "cyclical_trough_reasons", "turning", "off_52w_high", "momentum_12_1", "price_vs_200d", "trend_date", "spin_off_date",
     "revenue", "net_income", "fcf", "ebit", "ebitda", "equity", "total_debt", "cash",
-    "shares_outstanding", "as_of", "stale", "sic", "sic_description", "industry_source", "cik",
+    "shares_outstanding", "as_of", "stale", "annual_form", "sic", "sic_description", "industry_source", "cik",
 ]
 
 
