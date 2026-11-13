@@ -378,6 +378,9 @@ Open decisions
   history: link them in `config/cik_predecessors.yaml` (XOM, GOOGL, CLBK)
 - Not fixable from SEC data: Tanger (SKT) has no 10-K income facts in companyfacts under
   either its own or its operating partnership's CIK
+- Yahoo can refuse every request (HTTP 401, Nov 13 2026: 0 of ~100 fallback caps, 101 lost):
+  a flagged cap then comes from the latest snapshot within `cap_carry_days`, moved with the
+  price, unless the price halved or doubled (a possible split). 104 carried that day
 - Not handled yet: 10-K filers reporting in another currency (Enbridge, Canadian Pacific
   in CAD) have no USD facts, so they're "Insufficient data"
 

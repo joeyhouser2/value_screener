@@ -3,6 +3,7 @@
 import datetime as dt
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from value_screener import prices
@@ -139,3 +140,36 @@ def test_first_run_of_the_day_keeps_numeric_market_caps(tmp_path):
                     market_caps=lambda *_: {}, verbose=False)
     assert out["price"].dtype == float and out["market_cap"].dtype == float
     assert out.set_index("ticker").loc["A", "market_cap"] == 50
+
+
+def _snapshot(tmp_path, day, rows):
+    hist = tmp_path / "history"
+    hist.mkdir(exist_ok=True)
+    pd.DataFrame(rows, columns=["ticker", "price", "market_cap"]).to_parquet(hist / f"screen_{day}.parquet")
+
+
+def test_yahoo_refusing_carries_the_last_snapshot_cap_moved_with_the_price(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    _snapshot(tmp_path, "2026-11-01", [("OLD", 10.0, 5e8), ("SPLIT", 100.0, 1e9), ("NEW", 5.0, None)])
+    _snapshot(tmp_path, "2026-11-05", [("OLD", 20.0, 9e8)])                   # the latest wins
+    _snapshot(tmp_path, "2026-11-13", [("OLD", 1.0, 1.0)])                    # today's own: ignored
+    _snapshot(tmp_path, "2026-08-01", [("STALE", 10.0, 3e8)])                # past the window
+    tickers = ["OLD", "SPLIT", "NEW", "STALE"]
+    uni = pd.DataFrame({"ticker": tickers})
+    fund = pd.DataFrame({"ticker": tickers, "shares_outstanding": None})       # every SEC cap flagged
+    out = prices.refresh(s, uni, fund, FakeSource({"OLD": 22.0, "SPLIT": 30.0, "NEW": 5.0, "STALE": 10.0}),
+                         reference_caps=lambda s: {}, market_caps=lambda s, t: {}, verbose=False,
+                         today=dt.date(2026, 11, 13)).set_index("ticker")
+    assert out.loc["OLD", "market_cap"] == pytest.approx(9e8 * 22 / 20) and out.loc["OLD", "market_cap_src"] == "carried"
+    for t in ("SPLIT", "NEW", "STALE"):                  # price fell 70%: maybe a split; no cap; too old
+        assert np.isnan(out.loc[t, "market_cap"]) and out.loc[t, "market_cap_src"] == "untrusted"
+
+
+def test_yahoo_and_nasdaq_still_come_before_a_carried_cap(tmp_path):
+    s = Settings(data_dir=tmp_path)
+    _snapshot(tmp_path, "2026-11-05", [("N", 10.0, 1e9), ("Y", 10.0, 1e9)])
+    uni = pd.DataFrame({"ticker": ["N", "Y"]})
+    fund = pd.DataFrame({"ticker": ["N", "Y"], "shares_outstanding": None})
+    out = prices.refresh(s, uni, fund, FakeSource({"N": 10.0, "Y": 10.0}), reference_caps=lambda s: {"N": 2e9},
+                         market_caps=lambda s, t: {"Y": 3e9}, verbose=False, today=dt.date(2026, 11, 13))
+    assert out.set_index("ticker")["market_cap_src"].to_dict() == {"N": "nasdaq", "Y": "yahoo"}

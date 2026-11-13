@@ -23,6 +23,7 @@ class Settings:
     history_years: int = 15
     price_chunk: int = 200
     price_pause: float = 1.0
+    cap_carry_days: int = 45
     trend_retries: int = 2
     trend_retry_pause: float = 30.0
     trend_batch_timeout: float = 120.0
