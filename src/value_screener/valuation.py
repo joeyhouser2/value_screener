@@ -124,13 +124,15 @@ SPAC_NAME = r"acquisition (?:corp|co\b|company|ltd|inc)|merger (?:corp|sub)|tont
 def insufficient_reason(df: pd.DataFrame, settings: Settings) -> pd.Series:
     """One plain reason per "Insufficient data" stock (blank for the others)."""
     col = lambda c: df[c] if c in df else pd.Series(pd.NA, index=df.index, dtype=object)
-    us_gaap, form = col("us_gaap"), col("annual_form").fillna("")
+    # The latest annual report's form, from SEC's filing index (industry step): a 20-F or 40-F
+    # filer is foreign even when a few of its tags are US GAAP (ASML, BHP, Sony).
+    us_gaap, form = col("us_gaap"), col("annual_form").fillna("").astype(str).str.split("/").str[0]
     no_income = pd.to_datetime(col("as_of"), errors="coerce").isna()
     steps = [
         ("no_sec", us_gaap.isna()),
         ("spac", col("name").fillna("").astype(str).str.contains(SPAC_NAME, case=False, regex=True)),
         ("foreign", form.isin(["20-F", "40-F"]) | us_gaap.eq(False)),
-        ("new", no_income & col("short_history").fillna(False).astype(bool)),
+        ("new", no_income & (form == "")),          # no annual report yet: IPOs, spin-offs
         ("no_income", no_income),
         ("stale", df["stale"].fillna(True).astype(bool)),
         ("no_cap", df["market_cap"].isna()),

@@ -53,7 +53,8 @@ BLANK_HELP = {
 
 # What each "Insufficient data" reason (valuation.REASONS) means, and whether it can change.
 REASON_HELP = {
-    "No SEC financial data": "No XBRL financials at SEC at all: mostly ADRs and companies without a CIK.",
+    "No SEC financial data": "No XBRL financials at SEC at all: ADRs, companies without a CIK, and banks "
+                             "that report to bank regulators instead of SEC (Bank OZK).",
     "Foreign filer (20-F / 40-F)": "Files annual reports as a foreign company, usually under IFRS or in "
                                    "another currency, which this screen doesn't read.",
     "SPAC (blank-check company)": "A shell holding cash in trust until it buys a business: there's nothing "

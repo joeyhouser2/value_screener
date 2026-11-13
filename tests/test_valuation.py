@@ -186,7 +186,7 @@ def test_each_insufficient_stock_gets_one_plain_reason():
     rows = [  # name, us_gaap, annual_form, as_of, short_history, stale, market_cap, net_income
         ("No Facts", None, None, None, False, True, 1e9, None),
         ("Rocket Acquisition Corp", True, "10-K", None, False, True, 1e8, None),
-        ("ASML Holding", True, "20-F", None, False, True, 5e11, None),
+        ("ASML Holding", True, "20-F/A", None, False, True, 5e11, None),            # an amendment
         ("New Co", True, None, None, True, True, 1e9, None),
         ("Tanger Inc", True, "10-K", None, False, True, 4e9, None),
         ("Old Co", True, "10-K", "2020-12-31", False, True, 1e9, 5.0),

@@ -358,10 +358,3 @@ def test_a_bankruptcy_fresh_start_isnt_chained():
     assert f.fresh_start(rows) and not f.fresh_start(FY_CHANGE)
     assert f.flow_value(rows)["src"] != "chained"
 
-
-def test_annual_form_is_the_latest_annual_report():
-    slim = {"tags": {"Revenues": [r("2024-01-01", "2024-12-31", 1, "2025-03-01", form="20-F"),
-                                  r("2025-01-01", "2025-12-31", 1, "2026-02-01", form="10-K/A"),
-                                  r("2026-01-01", "2026-03-31", 1, "2026-05-01")]}}
-    assert f.annual_form(slim) == "10-K"
-    assert f.annual_form({"tags": {"Revenues": [r("2026-01-01", "2026-03-31", 1)]}}) is None

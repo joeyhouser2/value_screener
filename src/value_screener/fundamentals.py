@@ -361,17 +361,6 @@ def _stitch_lagging(slim: dict, tags_cfg: dict, vals: dict) -> None:
                 vals[key] = v
 
 
-ANNUAL_FORMS = ("10-K", "10-KT", "20-F", "40-F")
-
-
-def annual_form(slim: dict) -> str | None:
-    """The form of the latest annual report in ``slim`` (10-K, 20-F, 40-F...), or None. A
-    20-F or 40-F filer is foreign, even when a few of its tags are US GAAP (ASML, BHP)."""
-    latest = max(((r[3], r[4].split("/")[0]) for rows in (slim.get("tags") or {}).values() for r in rows
-                  if r[3] and r[4] and r[4].split("/")[0] in ANNUAL_FORMS), default=None)
-    return latest[1] if latest else None
-
-
 def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
             stale_months: int = 15) -> dict:
     """One row of fundamentals from a slimmed companyfacts payload."""
@@ -384,8 +373,7 @@ def extract(slim: dict, tags_cfg: dict, *, today: dt.date | None = None,
     _stitch_lagging(slim, tags_cfg, vals)
 
     row: dict = {"entity": slim.get("entity"),
-                 "us_gaap": "us-gaap" in (slim.get("taxonomies") or []),
-                 "annual_form": annual_form(slim)}
+                 "us_gaap": "us-gaap" in (slim.get("taxonomies") or [])}
     for key in ROW_FIELDS:
         v = vals[key]
         row[key] = v["val"]
