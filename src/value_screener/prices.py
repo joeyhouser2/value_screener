@@ -85,6 +85,7 @@ NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks?tableonly=true
 # A SEC-share market cap this far from the reference cap is treated as wrong
 # (multi-class shares, ADR ratios, stale share counts).
 MAX_CAP_RATIO = 1.5
+MAX_CARRY_MOVE = 2.0        # a carried cap is skipped past this price move: maybe a split
 
 
 def with_market_cap(closes: pd.DataFrame, fundamentals_df: pd.DataFrame,
@@ -184,9 +185,40 @@ def yahoo_market_caps(settings: Settings, tickers: list[str], *, pause: float = 
     return out
 
 
+def last_known_caps(settings: Settings, today: dt.date) -> pd.DataFrame:
+    """Each ticker's latest market cap and price from the snapshots in ``data/history/``,
+    taken before ``today`` and within ``cap_carry_days``: ticker, cap, price, date."""
+    found: dict[str, tuple] = {}
+    for path in sorted((settings.data_dir / "history").glob("screen_*.parquet"), reverse=True):
+        try:
+            day = dt.date.fromisoformat(path.stem.removeprefix("screen_"))
+        except ValueError:
+            continue
+        if day >= today:
+            continue
+        if (today - day).days > settings.cap_carry_days:
+            break
+        snap = pd.read_parquet(path, columns=["ticker", "price", "market_cap"]).dropna()
+        for t, cap, price in snap.loc[snap["market_cap"] > 0, ["ticker", "market_cap", "price"]].itertuples(index=False):
+            found.setdefault(t, (cap, price, day))
+    return pd.DataFrame([(t, *v) for t, v in found.items()], columns=["ticker", "cap", "price", "date"])
+
+
+def carried_caps(df: pd.DataFrame, known: pd.DataFrame) -> pd.Series:
+    """Last known caps moved with the price since, for the tickers in ``df``.
+
+    Skipped when the price more than halved or doubled: that's as likely a split since the
+    snapshot, which would scale the cap the wrong way."""
+    k = known.set_index("ticker")
+    price_then = df["ticker"].map(k["price"]) if len(k) else pd.Series(index=df.index, dtype=float)
+    move = pd.to_numeric(df["price"], errors="coerce") / price_then
+    cap = df["ticker"].map(k["cap"]) * move if len(k) else move
+    return cap.where(move.between(1 / MAX_CARRY_MOVE, MAX_CARRY_MOVE))
+
+
 def refresh(settings: Settings, universe_df: pd.DataFrame, fundamentals_df: pd.DataFrame,
             source: PriceSource | None = None, *, reference_caps=None, market_caps=None,
-            verbose: bool = True) -> pd.DataFrame:
+            verbose: bool = True, today: dt.date | None = None) -> pd.DataFrame:
     reference_caps = reference_caps or nasdaq_market_caps
     market_caps = market_caps or yahoo_market_caps
     source = source or YahooPrices(settings.price_chunk, settings.price_pause)
@@ -211,7 +243,13 @@ def refresh(settings: Settings, universe_df: pd.DataFrame, fundamentals_df: pd.D
     from_yahoo = df["ticker"].isin(yahoo) & check & ~from_ref
     df.loc[from_yahoo, "market_cap"] = df.loc[from_yahoo, "ticker"].map(yahoo)
     df.loc[from_yahoo, "market_cap_src"] = "yahoo"
-    untrusted = check & ~from_ref & ~from_yahoo
+    # Yahoo refuses at times (HTTP 401 for every request on 2026-11-13, which cost 101 caps):
+    # then the last trusted cap from a recent snapshot, moved with the price since.
+    rest = check & ~from_ref & ~from_yahoo
+    carried = carried_caps(df[rest], last_known_caps(settings, today or dt.date.today())).dropna()
+    df.loc[carried.index, "market_cap"] = carried
+    df.loc[carried.index, "market_cap_src"] = "carried"
+    untrusted = rest & ~df.index.isin(carried.index)
     df.loc[untrusted, "market_cap"] = float("nan")
     df.loc[untrusted, "market_cap_src"] = "untrusted"
 
@@ -220,7 +258,8 @@ def refresh(settings: Settings, universe_df: pd.DataFrame, fundamentals_df: pd.D
         print(f"Prices: {len(df)}/{len(tickers)} closes; "
               f"{int(df['market_cap'].notna().sum())} with market cap; "
               f"{int(check.sum())} SEC-share caps flagged -> {int(from_ref.sum())} from Nasdaq, "
-              f"{int(from_yahoo.sum())} from Yahoo, {int(untrusted.sum())} left missing")
+              f"{int(from_yahoo.sum())} from Yahoo, {len(carried)} carried from a recent snapshot, "
+              f"{int(untrusted.sum())} left missing")
     return df
 
 

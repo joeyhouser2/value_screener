@@ -19,6 +19,7 @@ history_years: 15           # fiscal years kept in data/fundamentals_history.par
 # Prices
 price_chunk: 200            # tickers per yfinance batch download
 price_pause: 1.0            # seconds between batches
+cap_carry_days: 45          # Yahoo refusing: carry a snapshot cap this recent, moved with the price
 trend_retries: 2            # extra passes over tickers Yahoo failed on
 trend_retry_pause: 30.0     # seconds before each extra pass
 trend_batch_timeout: 120.0  # give up on a batch after this; a normal one takes about 7s
